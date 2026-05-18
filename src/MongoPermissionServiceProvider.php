@@ -23,6 +23,7 @@ class MongoPermissionServiceProvider extends ServiceProvider
 
             $this->commands([
                 \Webrek\MongoPermission\Commands\CreateIndexes::class,
+                \Webrek\MongoPermission\Commands\CacheReset::class,
             ]);
         }
 

@@ -50,4 +50,19 @@ class CacheTest extends TestCase
         // With cache hot, the answer remains true even after the underlying doc changed.
         $this->assertTrue($user->hasPermissionTo('edit'));
     }
+
+    public function test_cache_reset_command_flushes_the_namespace(): void
+    {
+        $user = TestUser::create(['name' => 'V']);
+        Permission::create(['name' => 'edit']);
+        $user->givePermissionTo('edit');
+        $user->fresh()->hasPermissionTo('edit');   // warm
+
+        $key = sprintf('mongo-permission.user.%s.team.null.permissions', $user->getKey());
+        $this->assertNotNull(Cache::get($key));
+
+        $this->artisan('permission:cache-reset')->assertExitCode(0);
+
+        $this->assertNull(Cache::get($key));
+    }
 }
