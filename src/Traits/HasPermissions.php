@@ -111,20 +111,16 @@ trait HasPermissions
 
     public function hasPermissionTo(string|PermissionContract $permission): bool
     {
-        if ($this->hasDirectPermission($permission)) {
+        $name = is_string($permission) ? $permission : $permission->getName();
+
+        $slugs = app(\Webrek\MongoPermission\PermissionRegistrar::class)
+            ->getUserPermissionSlugs($this);
+
+        if (in_array($name, $slugs, strict: true)) {
             return true;
         }
 
-        // Role-derived permissions are added in Task 9 once HasRoles is in.
-        if (method_exists($this, 'getPermissionsViaRoles')) {
-            $name = is_string($permission)
-                ? $permission
-                : $permission->getName();
-            return $this->getPermissionsViaRoles()->contains(fn ($p) => $p->getName() === $name);
-        }
-
         if (is_string($permission)) {
-            // ensure the permission exists; throws otherwise
             config('permission.models.permission')::findByName($permission, $this->guardName());
         }
 

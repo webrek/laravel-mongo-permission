@@ -13,6 +13,7 @@ abstract class TestCase extends Orchestra
         parent::setUp();
         $this->flushMongo();
         $this->app->make(\Webrek\MongoPermission\PermissionRegistrar::class)->forgetTeamId();
+        \Illuminate\Support\Facades\Cache::flush();
     }
 
     protected function getPackageProviders($app): array
