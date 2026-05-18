@@ -28,6 +28,7 @@ class MongoPermissionServiceProvider extends ServiceProvider
                 \Webrek\MongoPermission\Commands\CreateRole::class,
                 \Webrek\MongoPermission\Commands\CreatePermission::class,
                 \Webrek\MongoPermission\Commands\Show::class,
+                \Webrek\MongoPermission\Commands\PruneExpired::class,
             ]);
         }
 
