@@ -3,12 +3,15 @@
 namespace Webrek\MongoPermission;
 
 use Illuminate\Support\ServiceProvider;
+use Webrek\MongoPermission\PermissionRegistrar;
 
 class MongoPermissionServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__ . '/../config/permission.php', 'permission');
+
+        $this->app->singleton(PermissionRegistrar::class);
     }
 
     public function boot(): void
