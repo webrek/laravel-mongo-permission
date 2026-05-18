@@ -120,6 +120,14 @@ trait HasPermissions
             return true;
         }
 
+        if (config('permission.enable_wildcard_permission', false)) {
+            foreach ($slugs as $owned) {
+                if (\Webrek\MongoPermission\WildcardPermission::implies($owned, $name)) {
+                    return true;
+                }
+            }
+        }
+
         if (is_string($permission)) {
             config('permission.models.permission')::findByName($permission, $this->guardName());
         }

@@ -22,7 +22,7 @@ return [
 
     'strict_team_isolation' => false,
 
-    'enable_wildcard_permission' => false,
+    'enable_wildcard_permission' => true,
     'wildcard_separator' => '.',
 
     'throw_on_missing_permission' => true,
