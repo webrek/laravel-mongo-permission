@@ -14,7 +14,12 @@ return [
     'guard_names' => ['web', 'api'],
     'default_guard' => 'web',
 
-    'teams' => false,
+    'teams' => true,
+
+    'team_resolver' => function () {
+        return null;
+    },
+
     'strict_team_isolation' => false,
 
     'enable_wildcard_permission' => false,

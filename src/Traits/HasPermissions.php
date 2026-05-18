@@ -25,9 +25,10 @@ trait HasPermissions
             return $this;
         }
 
+        $activeTeam = $this->activeTeamId();
         $merged = $this->permission_ids ?? [];
         foreach ($toAdd as $id) {
-            $merged[] = ['permission_id' => $id, 'team_id' => null];
+            $merged[] = ['permission_id' => $id, 'team_id' => $activeTeam];
         }
         $this->permission_ids = $merged;
         $this->save();
@@ -38,7 +39,7 @@ trait HasPermissions
             event(new \Webrek\MongoPermission\Events\PermissionAttached(
                 $this,
                 $perm,
-                null,
+                $activeTeam,
                 $this->guardName(),
             ));
         }
@@ -136,8 +137,22 @@ trait HasPermissions
             ? (string) config('permission.models.permission')::findByName($permission, $this->guardName())->getKey()
             : (string) $permission->getKey();
 
-        return collect($this->permission_ids ?? [])
-            ->contains(fn ($e) => (string) ($e['permission_id'] ?? null) === $id);
+        $activeTeam = $this->activeTeamId();
+        $strict = (bool) config('permission.strict_team_isolation', false);
+
+        return collect($this->permission_ids ?? [])->contains(function ($e) use ($id, $activeTeam, $strict) {
+            if ((string) ($e['permission_id'] ?? null) !== $id) {
+                return false;
+            }
+            $entryTeam = $e['team_id'] ?? null;
+            if (! config('permission.teams', false)) {
+                return true;
+            }
+            if ($strict) {
+                return $entryTeam === $activeTeam;
+            }
+            return $entryTeam === $activeTeam || $entryTeam === null;
+        });
     }
 
     public function hasAnyPermission(...$permissions): bool
@@ -181,6 +196,14 @@ trait HasPermissions
     protected function guardName(): string
     {
         return \Webrek\MongoPermission\Guard::resolveForModel($this);
+    }
+
+    protected function activeTeamId(): ?string
+    {
+        if (! config('permission.teams', false)) {
+            return null;
+        }
+        return app(\Webrek\MongoPermission\PermissionRegistrar::class)->getTeamId();
     }
 
     protected function flattenInput(array $items): array

@@ -28,9 +28,10 @@ trait HasRoles
             return $this;
         }
 
+        $activeTeam = $this->activeTeamId();
         $merged = $this->role_ids ?? [];
         foreach ($toAdd as $id) {
-            $merged[] = ['role_id' => $id, 'team_id' => null];
+            $merged[] = ['role_id' => $id, 'team_id' => $activeTeam];
         }
         $this->role_ids = $merged;
         $this->save();
@@ -41,7 +42,7 @@ trait HasRoles
             event(new \Webrek\MongoPermission\Events\RoleAttached(
                 $this,
                 $role,
-                null,
+                $activeTeam,
                 $this->guardName(),
             ));
         }
@@ -114,11 +115,27 @@ trait HasRoles
     public function hasRole(string|array|RoleContract $role, ?string $guard = null): bool
     {
         $names = is_array($role) ? $role : [$role];
+        $activeTeam = $this->activeTeamId();
+        $strict = (bool) config('permission.strict_team_isolation', false);
+
         foreach ($names as $r) {
             $id = $this->resolveRoleId($r, $guard);
-            $hit = collect($this->role_ids ?? [])
-                ->contains(fn ($e) => (string) ($e['role_id'] ?? null) === $id);
-            if ($hit) return true;
+            $hit = collect($this->role_ids ?? [])->contains(function ($e) use ($id, $activeTeam, $strict) {
+                if ((string) ($e['role_id'] ?? null) !== $id) {
+                    return false;
+                }
+                $entryTeam = $e['team_id'] ?? null;
+                if (! config('permission.teams', false)) {
+                    return true;
+                }
+                if ($strict) {
+                    return $entryTeam === $activeTeam;
+                }
+                return $entryTeam === $activeTeam || $entryTeam === null;
+            });
+            if ($hit) {
+                return true;
+            }
         }
         return false;
     }

@@ -22,6 +22,12 @@ class Permission extends Model implements PermissionContract
         static::creating(function (self $perm): void {
             $perm->guard_name = $perm->guard_name ?? config('permission.default_guard');
 
+            if (! array_key_exists('team_id', $perm->getAttributes()) || $perm->team_id === null) {
+                if (config('permission.teams', false)) {
+                    $perm->team_id = app(\Webrek\MongoPermission\PermissionRegistrar::class)->getTeamId();
+                }
+            }
+
             $existing = static::query()
                 ->where('name', $perm->name)
                 ->where('guard_name', $perm->guard_name)

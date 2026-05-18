@@ -25,6 +25,12 @@ class Role extends Model implements RoleContract
             $role->guard_name = $role->guard_name ?? config('permission.default_guard');
             $role->permission_ids = $role->permission_ids ?? [];
 
+            if (! array_key_exists('team_id', $role->getAttributes()) || $role->team_id === null) {
+                if (config('permission.teams', false)) {
+                    $role->team_id = app(\Webrek\MongoPermission\PermissionRegistrar::class)->getTeamId();
+                }
+            }
+
             $existing = static::query()
                 ->where('name', $role->name)
                 ->where('guard_name', $role->guard_name)
