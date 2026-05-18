@@ -2,6 +2,7 @@
 
 namespace Webrek\MongoPermission;
 
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Webrek\MongoPermission\PermissionRegistrar;
 
@@ -83,5 +84,16 @@ class MongoPermissionServiceProvider extends ServiceProvider
             return "<?php if (auth()->check() && method_exists(auth()->user(), 'hasAnyPermission') && auth()->user()->hasAnyPermission(explode('|', $expression))): ?>";
         });
         $blade->directive('endhasanypermission', fn () => '<?php endif; ?>');
+
+        Gate::before(function ($user, $ability) {
+            if (! method_exists($user, 'hasPermissionTo')) {
+                return null;
+            }
+            try {
+                return $user->hasPermissionTo($ability) ?: null;
+            } catch (\Webrek\MongoPermission\Exceptions\PermissionDoesNotExist) {
+                return null;
+            }
+        });
     }
 }
