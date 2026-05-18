@@ -36,6 +36,10 @@ class Role extends Model implements RoleContract
             }
         });
 
+        static::created(function (self $role): void {
+            event(new \Webrek\MongoPermission\Events\RoleCreated($role));
+        });
+
         static::deleted(function (self $role): void {
             $id = (string) $role->getKey();
             $userClass = config('auth.providers.users.model');
@@ -46,6 +50,8 @@ class Role extends Model implements RoleContract
                     ->selectCollection($userInstance->getTable())
                     ->updateMany([], ['$pull' => ['role_ids' => ['role_id' => $id]]]);
             }
+
+            event(new \Webrek\MongoPermission\Events\RoleDeleted($role));
         });
     }
 
@@ -100,16 +106,55 @@ class Role extends Model implements RoleContract
     public function givePermissionTo(...$permissions): self
     {
         $ids = $this->resolvePermissionIds($this->flatten($permissions));
-        $this->permission_ids = array_values(array_unique(array_merge($this->permission_ids ?? [], $ids)));
+        $current = $this->permission_ids ?? [];
+        $toAdd = array_diff($ids, $current);
+
+        if (empty($toAdd)) {
+            return $this;
+        }
+
+        $this->permission_ids = array_values(array_unique(array_merge($current, $toAdd)));
         $this->save();
+
+        $permClass = config('permission.models.permission');
+        foreach ($toAdd as $id) {
+            $perm = $permClass::query()->where('_id', $id)->first();
+            event(new \Webrek\MongoPermission\Events\PermissionAttached(
+                $this,
+                $perm,
+                $this->team_id,
+                $this->guard_name,
+            ));
+        }
+
         return $this;
     }
 
     public function revokePermissionTo(...$permissions): self
     {
         $ids = $this->resolvePermissionIds($this->flatten($permissions));
-        $this->permission_ids = array_values(array_diff($this->permission_ids ?? [], $ids));
+        $current = $this->permission_ids ?? [];
+        $remaining = array_values(array_diff($current, $ids));
+        $removed = array_diff($current, $remaining);
+
+        $this->permission_ids = $remaining;
         $this->save();
+
+        if (! empty($removed)) {
+            $permClass = config('permission.models.permission');
+            foreach ($removed as $id) {
+                $perm = $permClass::query()->where('_id', $id)->first();
+                if ($perm) {
+                    event(new \Webrek\MongoPermission\Events\PermissionDetached(
+                        $this,
+                        $perm,
+                        $this->team_id,
+                        $this->guard_name,
+                    ));
+                }
+            }
+        }
+
         return $this;
     }
 

@@ -24,6 +24,9 @@ trait HasRoles
             ->all();
 
         $toAdd = array_diff($ids, $current);
+        if (empty($toAdd)) {
+            return $this;
+        }
 
         $merged = $this->role_ids ?? [];
         foreach ($toAdd as $id) {
@@ -31,28 +34,80 @@ trait HasRoles
         }
         $this->role_ids = $merged;
         $this->save();
+
+        $roleClass = config('permission.models.role');
+        foreach ($toAdd as $id) {
+            $role = $roleClass::query()->where('_id', $id)->first();
+            event(new \Webrek\MongoPermission\Events\RoleAttached(
+                $this,
+                $role,
+                null,
+                $this->guardName(),
+            ));
+        }
+
         return $this;
     }
 
     public function removeRole(...$roles): self
     {
         $ids = $this->resolveRoleIds($this->flattenInput($roles));
-        $this->role_ids = collect($this->role_ids ?? [])
+        $remaining = collect($this->role_ids ?? [])
             ->reject(fn ($e) => in_array((string) ($e['role_id'] ?? null), $ids, strict: true))
             ->values()
             ->all();
+
+        $removed = array_diff(
+            collect($this->role_ids ?? [])->map(fn ($e) => (string) ($e['role_id'] ?? null))->all(),
+            collect($remaining)->map(fn ($e) => (string) ($e['role_id'] ?? null))->all(),
+        );
+
+        $this->role_ids = $remaining;
         $this->save();
+
+        if (! empty($removed)) {
+            $roleClass = config('permission.models.role');
+            foreach ($removed as $id) {
+                $role = $roleClass::query()->where('_id', $id)->first();
+                if ($role) {
+                    event(new \Webrek\MongoPermission\Events\RoleDetached(
+                        $this,
+                        $role,
+                        null,
+                        $this->guardName(),
+                    ));
+                }
+            }
+        }
+
         return $this;
     }
 
     public function syncRoles(...$roles): self
     {
-        $ids = $this->resolveRoleIds($this->flattenInput($roles));
-        $this->role_ids = array_map(
-            fn (string $id) => ['role_id' => $id, 'team_id' => null],
-            array_values(array_unique($ids)),
-        );
-        $this->save();
+        $targetIds = $this->resolveRoleIds($this->flattenInput($roles));
+        $currentIds = collect($this->role_ids ?? [])
+            ->map(fn ($e) => (string) ($e['role_id'] ?? null))
+            ->all();
+
+        $toRemove = array_diff($currentIds, $targetIds);
+        $toAdd = array_diff($targetIds, $currentIds);
+
+        if (! empty($toRemove) || ! empty($toAdd)) {
+            $roleClass = config('permission.models.role');
+            if (! empty($toRemove)) {
+                $models = $roleClass::query()->whereIn('_id', $toRemove)->get()->all();
+                if (! empty($models)) {
+                    $this->removeRole($models);
+                }
+            }
+            if (! empty($toAdd)) {
+                $models = $roleClass::query()->whereIn('_id', $toAdd)->get()->all();
+                if (! empty($models)) {
+                    $this->assignRole($models);
+                }
+            }
+        }
         return $this;
     }
 

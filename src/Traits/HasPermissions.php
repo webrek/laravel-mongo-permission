@@ -21,6 +21,9 @@ trait HasPermissions
             ->all();
 
         $toAdd = array_diff($ids, $current);
+        if (empty($toAdd)) {
+            return $this;
+        }
 
         $merged = $this->permission_ids ?? [];
         foreach ($toAdd as $id) {
@@ -28,28 +31,80 @@ trait HasPermissions
         }
         $this->permission_ids = $merged;
         $this->save();
+
+        $permClass = config('permission.models.permission');
+        foreach ($toAdd as $id) {
+            $perm = $permClass::query()->where('_id', $id)->first();
+            event(new \Webrek\MongoPermission\Events\PermissionAttached(
+                $this,
+                $perm,
+                null,
+                $this->guardName(),
+            ));
+        }
+
         return $this;
     }
 
     public function revokePermissionTo(...$permissions): self
     {
         $ids = $this->resolvePermissionIds($this->flattenInput($permissions));
-        $this->permission_ids = collect($this->permission_ids ?? [])
+        $remaining = collect($this->permission_ids ?? [])
             ->reject(fn ($e) => in_array((string) ($e['permission_id'] ?? null), $ids, strict: true))
             ->values()
             ->all();
+
+        $removed = array_diff(
+            collect($this->permission_ids ?? [])->map(fn ($e) => (string) ($e['permission_id'] ?? null))->all(),
+            collect($remaining)->map(fn ($e) => (string) ($e['permission_id'] ?? null))->all(),
+        );
+
+        $this->permission_ids = $remaining;
         $this->save();
+
+        if (! empty($removed)) {
+            $permClass = config('permission.models.permission');
+            foreach ($removed as $id) {
+                $perm = $permClass::query()->where('_id', $id)->first();
+                if ($perm) {
+                    event(new \Webrek\MongoPermission\Events\PermissionDetached(
+                        $this,
+                        $perm,
+                        null,
+                        $this->guardName(),
+                    ));
+                }
+            }
+        }
+
         return $this;
     }
 
     public function syncPermissions(...$permissions): self
     {
-        $ids = $this->resolvePermissionIds($this->flattenInput($permissions));
-        $this->permission_ids = array_map(
-            fn (string $id) => ['permission_id' => $id, 'team_id' => null],
-            array_values(array_unique($ids)),
-        );
-        $this->save();
+        $targetIds = $this->resolvePermissionIds($this->flattenInput($permissions));
+        $currentIds = collect($this->permission_ids ?? [])
+            ->map(fn ($e) => (string) ($e['permission_id'] ?? null))
+            ->all();
+
+        $toRemove = array_diff($currentIds, $targetIds);
+        $toAdd = array_diff($targetIds, $currentIds);
+
+        if (! empty($toRemove) || ! empty($toAdd)) {
+            $permClass = config('permission.models.permission');
+            if (! empty($toRemove)) {
+                $models = $permClass::query()->whereIn('_id', $toRemove)->get()->all();
+                if (! empty($models)) {
+                    $this->revokePermissionTo($models);
+                }
+            }
+            if (! empty($toAdd)) {
+                $models = $permClass::query()->whereIn('_id', $toAdd)->get()->all();
+                if (! empty($models)) {
+                    $this->givePermissionTo($models);
+                }
+            }
+        }
         return $this;
     }
 

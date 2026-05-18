@@ -33,6 +33,10 @@ class Permission extends Model implements PermissionContract
             }
         });
 
+        static::created(function (self $perm): void {
+            event(new \Webrek\MongoPermission\Events\PermissionCreated($perm));
+        });
+
         static::deleted(function (self $perm): void {
             $id = (string) $perm->getKey();
 
@@ -52,6 +56,8 @@ class Permission extends Model implements PermissionContract
                 $role->permission_ids = array_values(array_diff($role->permission_ids ?? [], [$id]));
                 $role->saveQuietly();
             });
+
+            event(new \Webrek\MongoPermission\Events\PermissionDeleted($perm));
         });
     }
 
