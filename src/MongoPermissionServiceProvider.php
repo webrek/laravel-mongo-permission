@@ -32,5 +32,10 @@ class MongoPermissionServiceProvider extends ServiceProvider
         $events->listen(\Webrek\MongoPermission\Events\RoleDetached::class, [\Webrek\MongoPermission\Listeners\RefreshUserCacheListener::class, 'onRoleDetached']);
         $events->listen(\Webrek\MongoPermission\Events\PermissionAttached::class, [\Webrek\MongoPermission\Listeners\RefreshUserCacheListener::class, 'onPermissionAttached']);
         $events->listen(\Webrek\MongoPermission\Events\PermissionDetached::class, [\Webrek\MongoPermission\Listeners\RefreshUserCacheListener::class, 'onPermissionDetached']);
+
+        $router = $this->app['router'];
+        $router->aliasMiddleware('role', \Webrek\MongoPermission\Middleware\RoleMiddleware::class);
+        $router->aliasMiddleware('permission', \Webrek\MongoPermission\Middleware\PermissionMiddleware::class);
+        $router->aliasMiddleware('role_or_permission', \Webrek\MongoPermission\Middleware\RoleOrPermissionMiddleware::class);
     }
 }
