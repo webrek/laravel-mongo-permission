@@ -25,5 +25,11 @@ class MongoPermissionServiceProvider extends ServiceProvider
                 \Webrek\MongoPermission\Commands\CreateIndexes::class,
             ]);
         }
+
+        $events = $this->app['events'];
+        $events->listen(\Webrek\MongoPermission\Events\RoleAttached::class, [\Webrek\MongoPermission\Listeners\RefreshUserCacheListener::class, 'onRoleAttached']);
+        $events->listen(\Webrek\MongoPermission\Events\RoleDetached::class, [\Webrek\MongoPermission\Listeners\RefreshUserCacheListener::class, 'onRoleDetached']);
+        $events->listen(\Webrek\MongoPermission\Events\PermissionAttached::class, [\Webrek\MongoPermission\Listeners\RefreshUserCacheListener::class, 'onPermissionAttached']);
+        $events->listen(\Webrek\MongoPermission\Events\PermissionDetached::class, [\Webrek\MongoPermission\Listeners\RefreshUserCacheListener::class, 'onPermissionDetached']);
     }
 }
