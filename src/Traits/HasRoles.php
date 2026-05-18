@@ -167,9 +167,14 @@ trait HasRoles
     protected function resolveRoleId($entry, ?string $guard = null): string
     {
         $roleClass = config('permission.models.role');
+        $expectedGuard = $guard ?? $this->guardName();
         if ($entry instanceof RoleContract) {
+            $actualGuard = $entry->getGuardName();
+            if ($actualGuard !== $expectedGuard) {
+                throw \Webrek\MongoPermission\Exceptions\GuardDoesNotMatch::create($actualGuard, $expectedGuard);
+            }
             return (string) $entry->getKey();
         }
-        return (string) $roleClass::findByName($entry, $guard ?? $this->guardName())->getKey();
+        return (string) $roleClass::findByName($entry, $expectedGuard)->getKey();
     }
 }

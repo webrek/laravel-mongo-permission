@@ -52,4 +52,26 @@ class MultiGuardTest extends TestCase
 
         $this->assertContains($assignedId, $stored);
     }
+
+    public function test_assigning_role_from_wrong_guard_throws_guard_does_not_match(): void
+    {
+        Role::create(['name' => 'admin', 'guard_name' => 'api']);
+
+        $webUser = TestUser::create(['name' => 'W']);
+
+        $this->expectException(\Webrek\MongoPermission\Exceptions\GuardDoesNotMatch::class);
+
+        $webUser->assignRole(\Webrek\MongoPermission\Models\Role::findByName('admin', 'api'));
+    }
+
+    public function test_giving_permission_from_wrong_guard_throws_guard_does_not_match(): void
+    {
+        Permission::create(['name' => 'p', 'guard_name' => 'api']);
+
+        $webUser = TestUser::create(['name' => 'W']);
+
+        $this->expectException(\Webrek\MongoPermission\Exceptions\GuardDoesNotMatch::class);
+
+        $webUser->givePermissionTo(\Webrek\MongoPermission\Models\Permission::findByName('p', 'api'));
+    }
 }

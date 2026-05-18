@@ -196,13 +196,18 @@ trait HasPermissions
     protected function resolvePermissionIds(array $entries): array
     {
         $permClass = config('permission.models.permission');
+        $expectedGuard = $this->guardName();
         $ids = [];
         foreach ($entries as $e) {
             if ($e instanceof PermissionContract) {
+                $actualGuard = $e->getGuardName();
+                if ($actualGuard !== $expectedGuard) {
+                    throw \Webrek\MongoPermission\Exceptions\GuardDoesNotMatch::create($actualGuard, $expectedGuard);
+                }
                 $ids[] = (string) $e->getKey();
                 continue;
             }
-            $ids[] = (string) $permClass::findByName($e, $this->guardName())->getKey();
+            $ids[] = (string) $permClass::findByName($e, $expectedGuard)->getKey();
         }
         return $ids;
     }
