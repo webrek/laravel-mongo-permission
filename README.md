@@ -35,13 +35,10 @@ $user->hasPermissionTo('edit articles'); // true
 
 ## Status
 
-This package is under active development. The current release covers
-models, traits, cascade deletion, multi-tenant teams (with optional
-strict isolation), multi-guard resolution, request-scoped and persistent
-caching with event-driven invalidation, and the `permission:create-indexes`
-and `permission:cache-reset` Artisan commands. Middleware, Blade
-directives, Gate integration, and wildcard permissions are planned for
-the next release.
+v1.0 — ready for production. Covers single + multi-tenant Laravel apps,
+multi-guard auth, request-scoped + persistent caching, eight lifecycle
+events, wildcard permissions, route middleware, Blade directives, Gate
+integration, and a full set of Artisan commands.
 
 ## Caching
 
@@ -96,6 +93,66 @@ Set `permission.teams = true` (default) and either call
 Assignments made while a team is active are scoped to that team. Reads
 honor the active team. Setting `permission.strict_team_isolation = true`
 disables the "team_id = null is global" fallback.
+
+## Wildcard permissions
+
+`enable_wildcard_permission` defaults to `true`. Patterns use `.` as the
+separator (configurable via `permission.wildcard_separator`). A trailing
+`*` is greedy and matches all remaining segments; interior `*` matches
+exactly one segment; a sole `*` matches any non-empty name.
+
+```php
+Permission::create(['name' => 'posts.*']);
+$user->givePermissionTo('posts.*');
+$user->hasPermissionTo('posts.edit');         // true
+$user->hasPermissionTo('posts.edit.own');     // true
+```
+
+## Middleware
+
+```php
+Route::get('/admin', ...)->middleware('role:admin');
+Route::get('/edit',  ...)->middleware('permission:edit articles');
+Route::get('/x',     ...)->middleware('role_or_permission:admin|edit articles');
+Route::get('/teams/{team}/admin', ...)
+    ->middleware(['team-context:team', 'role:admin']);
+```
+
+Denied requests throw `Webrek\MongoPermission\Exceptions\UnauthorizedException`
+(HTTP 403). Register a custom exception handler if you want a different
+response shape.
+
+## Blade directives
+
+```blade
+@role('admin') ... @endrole
+@hasanyrole('admin|editor') ... @endhasanyrole
+@hasallroles('admin|editor') ... @endhasallroles
+@unlessrole('guest') ... @endunlessrole
+
+@permission('edit articles') ... @endpermission
+@haspermission('edit articles') ... @endhaspermission
+@hasanypermission('edit|delete') ... @endhasanypermission
+
+@can('edit articles') ... @endcan   {{-- native Laravel, routed via Gate::before --}}
+```
+
+## Gate integration
+
+The package installs a `Gate::before` hook so `$user->can()`, `@can`, and
+controller `authorize()` calls consult `hasPermissionTo`. Unknown
+permission names return `null` from the hook so the rest of the Gate
+stack (Policies, manually-defined gates) still runs.
+
+## Artisan commands
+
+```bash
+php artisan permission:create-indexes
+php artisan permission:create-role admin [--guard=web] [perm1 perm2 ...]
+php artisan permission:create-permission "edit articles" [--guard=web]
+php artisan permission:show [--guard=web] [--team=...]
+php artisan permission:cache-reset
+```
 
 ## License
 
