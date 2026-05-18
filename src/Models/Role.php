@@ -23,7 +23,6 @@ class Role extends Model implements RoleContract
     {
         static::creating(function (self $role): void {
             $role->guard_name = $role->guard_name ?? config('permission.default_guard');
-            $role->team_id = $role->team_id ?? null;
             $role->permission_ids = $role->permission_ids ?? [];
 
             $existing = static::query()
@@ -90,11 +89,6 @@ class Role extends Model implements RoleContract
     public function getGuardName(): string
     {
         return $this->guard_name;
-    }
-
-    public function getKey(): mixed
-    {
-        return parent::getKey();
     }
 
     public function permissions(): Collection

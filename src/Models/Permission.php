@@ -21,7 +21,6 @@ class Permission extends Model implements PermissionContract
     {
         static::creating(function (self $perm): void {
             $perm->guard_name = $perm->guard_name ?? config('permission.default_guard');
-            $perm->team_id = $perm->team_id ?? null;
 
             $existing = static::query()
                 ->where('name', $perm->name)
@@ -96,10 +95,5 @@ class Permission extends Model implements PermissionContract
     public function getGuardName(): string
     {
         return $this->guard_name;
-    }
-
-    public function getKey(): mixed
-    {
-        return parent::getKey();
     }
 }

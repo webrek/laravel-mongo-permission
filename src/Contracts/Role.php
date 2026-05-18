@@ -8,8 +8,6 @@ interface Role
 
     public static function findById(string $id, ?string $guardName = null): self;
 
-    public function getKey(): mixed;
-
     public function getName(): string;
 
     public function getGuardName(): string;

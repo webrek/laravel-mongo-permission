@@ -39,6 +39,10 @@ abstract class TestCase extends Orchestra
     protected function flushMongo(): void
     {
         $db = $this->app['db']->connection('mongodb')->getMongoDB();
+        $name = $db->getDatabaseName();
+        if (! str_ends_with($name, '_test')) {
+            throw new \RuntimeException("flushMongo refuses to drop non-test database '{$name}'.");
+        }
         foreach ($db->listCollectionNames() as $coll) {
             $db->dropCollection($coll);
         }
