@@ -180,9 +180,7 @@ trait HasPermissions
 
     protected function guardName(): string
     {
-        return property_exists($this, 'guard_name') && $this->guard_name
-            ? $this->guard_name
-            : config('permission.default_guard');
+        return \Webrek\MongoPermission\Guard::resolveForModel($this);
     }
 
     protected function flattenInput(array $items): array
