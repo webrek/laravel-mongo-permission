@@ -191,7 +191,11 @@ trait HasRoles
     public function getPermissionsViaRoles(): Collection
     {
         $permClass = config('permission.models.permission');
-        $permissionIds = $this->roles()->flatMap(fn ($r) => $r->permission_ids ?? [])->unique()->all();
+        $permissionIds = $this->roles()->flatMap(function ($r) {
+            return method_exists($r, 'getAllPermissionIds')
+                ? $r->getAllPermissionIds()
+                : ($r->permission_ids ?? []);
+        })->unique()->all();
         return $permClass::query()->whereIn('_id', $permissionIds)->get();
     }
 

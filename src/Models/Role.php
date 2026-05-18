@@ -181,6 +181,115 @@ class Role extends Model implements RoleContract
         return in_array($id, array_map('strval', $this->permission_ids ?? []), strict: true);
     }
 
+    public function inheritsFrom(RoleContract $parent): self
+    {
+        if ((string) $parent->getKey() === (string) $this->getKey()) {
+            throw \Webrek\MongoPermission\Exceptions\RoleHierarchyCycle::detected($this->name, $parent->getName());
+        }
+
+        // Cycle detection: walk up from $parent and ensure $this is not an ancestor.
+        $maxDepth = (int) config('permission.role_hierarchy_max_depth', 5);
+        $visited = [];
+        $stack = [(string) $parent->getKey()];
+        // depth = 1 represents the hop from this role to its direct parent.
+        $depth = 1;
+        while (! empty($stack)) {
+            if ($depth > $maxDepth) {
+                throw \Webrek\MongoPermission\Exceptions\RoleHierarchyTooDeep::exceeded($this->name, $maxDepth);
+            }
+            $next = [];
+            foreach ($stack as $rid) {
+                if ($rid === (string) $this->getKey()) {
+                    throw \Webrek\MongoPermission\Exceptions\RoleHierarchyCycle::detected($this->name, $parent->getName());
+                }
+                if (isset($visited[$rid])) {
+                    continue;
+                }
+                $visited[$rid] = true;
+
+                $r = static::query()->where('_id', $rid)->first();
+                if (! $r) {
+                    continue;
+                }
+                foreach ($r->parent_role_ids ?? [] as $pid) {
+                    $next[] = (string) $pid;
+                }
+            }
+            $stack = $next;
+            $depth++;
+        }
+
+        $current = array_map('strval', $this->parent_role_ids ?? []);
+        $parentId = (string) $parent->getKey();
+        if (in_array($parentId, $current, strict: true)) {
+            return $this;
+        }
+        $current[] = $parentId;
+        $this->parent_role_ids = $current;
+        $this->save();
+
+        event(new \Webrek\MongoPermission\Events\RoleParentChanged($this, $parent, 'attached'));
+        return $this;
+    }
+
+    public function stopsInheritingFrom(RoleContract $parent): self
+    {
+        $current = array_map('strval', $this->parent_role_ids ?? []);
+        $parentId = (string) $parent->getKey();
+        if (! in_array($parentId, $current, strict: true)) {
+            return $this;
+        }
+        $this->parent_role_ids = array_values(array_diff($current, [$parentId]));
+        $this->save();
+
+        event(new \Webrek\MongoPermission\Events\RoleParentChanged($this, $parent, 'detached'));
+        return $this;
+    }
+
+    public function getAncestors(): \Illuminate\Support\Collection
+    {
+        $maxDepth = (int) config('permission.role_hierarchy_max_depth', 5);
+        $visited = [];
+        $stack = array_map('strval', $this->parent_role_ids ?? []);
+        $ancestors = [];
+        $depth = 0;
+        while (! empty($stack) && $depth <= $maxDepth) {
+            $next = [];
+            $roles = static::query()->whereIn('_id', $stack)->get();
+            /** @var \Webrek\MongoPermission\Models\Role $r */
+            foreach ($roles as $r) {
+                $rid = (string) $r->getKey();
+                if (isset($visited[$rid])) {
+                    continue;
+                }
+                $visited[$rid] = true;
+                $ancestors[] = $r;
+                foreach ($r->parent_role_ids ?? [] as $pid) {
+                    $next[] = (string) $pid;
+                }
+            }
+            $stack = $next;
+            $depth++;
+        }
+        return collect($ancestors);
+    }
+
+    /**
+     * Permission ids from this role plus every ancestor's role.
+     *
+     * @return array<int, string>
+     */
+    public function getAllPermissionIds(): array
+    {
+        $ids = array_map('strval', $this->permission_ids ?? []);
+        foreach ($this->getAncestors() as $ancestor) {
+            foreach ($ancestor->permission_ids ?? [] as $pid) {
+                $ids[] = (string) $pid;
+            }
+        }
+        return array_values(array_unique($ids));
+    }
+
     protected function flatten(array $items): array
     {
         $flat = [];

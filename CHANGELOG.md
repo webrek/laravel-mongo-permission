@@ -6,6 +6,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-18
+
+### Added
+- Role inheritance: `$role->inheritsFrom($parent)`,
+  `$role->stopsInheritingFrom($parent)`, `$role->getAncestors()`,
+  `$role->getAllPermissionIds()`. Multi-parent support with cycle
+  detection (`RoleHierarchyCycle`) and depth bound
+  (`RoleHierarchyTooDeep`, default `permission.role_hierarchy_max_depth = 5`).
+- `RoleParentChanged` event with `action = 'attached'|'detached'`.
+  The cache listener flushes the registrar on parent changes so
+  every affected user picks up the change on the next read.
+- `permission:list-users` Artisan command — list users with a given
+  role or permission (with `--guard`, `--team`, `--user-model`).
+  Permission listings include source: direct or via role name.
+- `permission:check` Artisan command — explain why a user does or
+  does not hold a given permission (direct, role, wildcard) with
+  per-grant team and expiry annotations.
+- `Webrek\MongoPermission\Testing\MongoPermissionAssertions` test
+  helper trait: `assertUserHasRole`, `assertUserDoesNotHaveRole`,
+  `assertUserHasAnyRole`, `assertUserHasAllRoles`,
+  `assertUserHasPermission`, `assertUserDoesNotHavePermission`,
+  `assertUserHasDirectPermission`, `assertRoleHasPermission`,
+  `assertRoleDoesNotHavePermission`.
+- PHPStan level 5 in CI (analyse job alongside the test matrix),
+  with `phpstan.neon` ignoring Eloquent dynamic property access on
+  Models and unused trait warnings.
+
+### Changed
+- `PermissionRegistrar` now expands a role's permission list through
+  its inheritance chain when building cached entries, so transitive
+  permissions resolve in `hasPermissionTo`.
+- `HasRoles::getPermissionsViaRoles` walks the inheritance chain via
+  `Role::getAllPermissionIds`.
+
+### Removed
+- Dead-code `is_array()` guards on string-typed middleware
+  parameters (flagged by PHPStan).
+
 ## [1.1.0] - 2026-05-18
 
 ### Added
@@ -76,6 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teams, strict isolation, wildcards, middlewares, Blade, Gate and
   commands.
 
-[Unreleased]: https://github.com/webrek/laravel-mongo-permission/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/webrek/laravel-mongo-permission/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/webrek/laravel-mongo-permission/releases/tag/v1.0.0

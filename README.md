@@ -169,6 +169,43 @@ A role granted with an expiry propagates that expiry to every
 permission reached through the role — once the role assignment
 expires, those permissions stop counting too.
 
+## Role hierarchy
+
+Roles can inherit permissions from other roles. A user assigned a
+role transparently gets every permission attached to that role and
+to every role in its ancestor chain.
+
+```php
+$viewer = Role::create(['name' => 'viewer']);
+$viewer->givePermissionTo('view articles');
+
+$editor = Role::create(['name' => 'editor']);
+$editor->givePermissionTo('edit articles');
+$editor->inheritsFrom($viewer);   // editor now grants view + edit
+
+$admin = Role::create(['name' => 'admin']);
+$admin->inheritsFrom($editor);    // admin now grants view + edit transitively
+
+$user->assignRole('admin');
+$user->hasPermissionTo('view articles');   // true
+$user->hasDirectPermission('view articles'); // false (transitive)
+```
+
+Inheritance is multi-parent: a role can extend several parents at
+once. Diamonds resolve cleanly — a permission reached through more
+than one path counts once.
+
+**Cycle detection.** `inheritsFrom` throws
+`Webrek\MongoPermission\Exceptions\RoleHierarchyCycle` if the new
+edge would create a loop. `RoleHierarchyTooDeep` fires when the
+total chain length would exceed `permission.role_hierarchy_max_depth`
+(default `5`).
+
+**Detaching a parent.** `$role->stopsInheritingFrom($parent)` drops
+the edge. The package fires `RoleParentChanged` (with `action =
+'attached'` or `'detached'`) and flushes the registrar cache so
+every affected user picks up the change on the next read.
+
 ## Wildcard permissions
 
 `enable_wildcard_permission` defaults to `true`. Patterns use `.` as the
@@ -252,6 +289,8 @@ php artisan permission:create-permission "edit articles" [--guard=web]
 php artisan permission:show [--guard=web] [--team=...]
 php artisan permission:cache-reset
 php artisan permission:prune-expired [--user-model=...] [--dry-run]
+php artisan permission:list-users {role} [--permission=...] [--guard=...] [--team=...]
+php artisan permission:check {user_id} {permission} [--guard=...] [--team=...]
 ```
 
 ## Configuration
@@ -283,11 +322,33 @@ Published to `config/permission.php`:
 docker compose up -d mongo
 docker compose run --rm php composer install
 docker compose run --rm php vendor/bin/phpunit
+docker compose run --rm php vendor/bin/phpstan analyse --memory-limit=1G
 ```
 
 The repository includes a `docker-compose.yml` that boots MongoDB 7
 with a healthcheck so the test suite starts as soon as the database
 is ready. No PHP or Mongo install on the host is required.
+
+For consumer apps, the package ships an assertion trait you can
+drop into your TestCase to test role and permission state with
+expressive assertions:
+
+```php
+use Webrek\MongoPermission\Testing\MongoPermissionAssertions;
+
+class FooTest extends TestCase
+{
+    use MongoPermissionAssertions;
+
+    public function test_admin_can_edit(): void
+    {
+        $this->assertUserHasRole($user, 'admin');
+        $this->assertUserHasPermission($user, 'edit articles');
+        $this->assertUserHasDirectPermission($user, 'publish');
+        $this->assertRoleHasPermission($role, 'view');
+    }
+}
+```
 
 ## License
 

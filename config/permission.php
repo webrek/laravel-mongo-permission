@@ -25,6 +25,8 @@ return [
     'enable_wildcard_permission' => true,
     'wildcard_separator' => '.',
 
+    'role_hierarchy_max_depth' => 5,
+
     'throw_on_missing_permission' => true,
     'handle_unauthorized' => true,
 

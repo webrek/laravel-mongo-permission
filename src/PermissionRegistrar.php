@@ -159,7 +159,11 @@ class PermissionRegistrar
             if (! $role) {
                 continue;
             }
-            foreach ($role->permission_ids ?? [] as $pid) {
+            // permission ids walked through the inheritance chain of the role
+            $allIds = method_exists($role, 'getAllPermissionIds')
+                ? $role->getAllPermissionIds()
+                : array_map('strval', $role->permission_ids ?? []);
+            foreach ($allIds as $pid) {
                 $grants[] = [
                     'permission_id' => (string) $pid,
                     'expires_at' => $assignment['expires_at'],
