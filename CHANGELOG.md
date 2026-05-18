@@ -6,6 +6,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-18
+
+### Added
+- `HasRoles::assignRoleUntil($role, $expiresAt)` — grant a role
+  with an expiry timestamp.
+- `HasPermissions::givePermissionToUntil($permission, $expiresAt)` —
+  grant a permission with an expiry timestamp.
+- `permission:prune-expired` Artisan command to garbage-collect
+  expired grant subdocs from user documents, with `--dry-run` and
+  `--user-model=` options.
+- `Webrek\MongoPermission\Support\Expiry` helper centralizing
+  expiry normalization between `DateTimeInterface`, BSON
+  `UTCDateTime` and unix timestamps.
+- Composer keywords (`laravel`, `mongodb`, `permissions`, `roles`,
+  `rbac`, `acl`, `authorization`, `multi-tenant`, `wildcard`) and
+  `support.issues` / `support.source` URLs for Packagist surfacing.
+- CHANGELOG.md following Keep-a-Changelog.
+- README section comparing this package with
+  `spatie/laravel-permission`.
+- README section "Expiring grants" documenting the new API and the
+  prune command.
+
+### Changed
+- `PermissionRegistrar` slug cache now stores grant entries with
+  their expiry attached and re-filters expired entries on every
+  read. Slug arrays returned by `getUserPermissionSlugs` and
+  `getUserRoleSlugs` are unchanged in shape.
+- A role assignment's expiry propagates to every permission reached
+  through that role: when the assignment expires, those permissions
+  stop counting in `hasPermissionTo` and `getAllPermissions`.
+
 ## [1.0.0] - 2026-05-18
 
 ### Added
@@ -45,5 +76,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teams, strict isolation, wildcards, middlewares, Blade, Gate and
   commands.
 
-[Unreleased]: https://github.com/webrek/laravel-mongo-permission/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/webrek/laravel-mongo-permission/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/webrek/laravel-mongo-permission/releases/tag/v1.0.0

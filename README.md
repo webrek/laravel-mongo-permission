@@ -137,6 +137,38 @@ Assignments made while a team is active are scoped to that team. Reads
 honor the active team. Setting `permission.strict_team_isolation = true`
 disables the "team_id = null is global" fallback.
 
+## Expiring grants
+
+Roles and permissions can be granted with an expiry. The grant
+stays on the user document but stops counting toward checks the
+moment `now()` passes the `expires_at` timestamp — even if the
+cache was warmed before the expiry.
+
+```php
+$user->assignRoleUntil('admin', now()->addHours(2));
+$user->givePermissionToUntil('publish posts', now()->addDays(7));
+
+$user->hasRole('admin');                  // true for two hours
+$user->hasPermissionTo('publish posts');  // true for seven days
+
+// After the expiry passes:
+$user->hasRole('admin');                  // false
+```
+
+Expired subdocs are not removed automatically. Run the prune
+command on a schedule (or ad-hoc) to garbage-collect them and free
+space on user documents:
+
+```bash
+php artisan permission:prune-expired
+php artisan permission:prune-expired --dry-run
+php artisan permission:prune-expired --user-model="App\\Models\\User"
+```
+
+A role granted with an expiry propagates that expiry to every
+permission reached through the role — once the role assignment
+expires, those permissions stop counting too.
+
 ## Wildcard permissions
 
 `enable_wildcard_permission` defaults to `true`. Patterns use `.` as the
@@ -219,6 +251,7 @@ php artisan permission:create-role admin [--guard=web] [perm1 perm2 ...]
 php artisan permission:create-permission "edit articles" [--guard=web]
 php artisan permission:show [--guard=web] [--team=...]
 php artisan permission:cache-reset
+php artisan permission:prune-expired [--user-model=...] [--dry-run]
 ```
 
 ## Configuration
