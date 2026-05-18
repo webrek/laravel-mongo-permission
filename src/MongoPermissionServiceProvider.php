@@ -38,5 +38,50 @@ class MongoPermissionServiceProvider extends ServiceProvider
         $router->aliasMiddleware('permission', \Webrek\MongoPermission\Middleware\PermissionMiddleware::class);
         $router->aliasMiddleware('role_or_permission', \Webrek\MongoPermission\Middleware\RoleOrPermissionMiddleware::class);
         $router->aliasMiddleware('team-context', \Webrek\MongoPermission\Middleware\TeamContextMiddleware::class);
+
+        $blade = $this->app['blade.compiler'];
+
+        $blade->directive('role', function ($expression) {
+            return "<?php if (auth()->check() && method_exists(auth()->user(), 'hasRole') && auth()->user()->hasRole($expression)): ?>";
+        });
+        $blade->directive('elserole', function ($expression) {
+            return "<?php elseif (auth()->check() && method_exists(auth()->user(), 'hasRole') && auth()->user()->hasRole($expression)): ?>";
+        });
+        $blade->directive('endrole', fn () => '<?php endif; ?>');
+
+        $blade->directive('hasrole', function ($expression) {
+            return "<?php if (auth()->check() && method_exists(auth()->user(), 'hasRole') && auth()->user()->hasRole($expression)): ?>";
+        });
+        $blade->directive('endhasrole', fn () => '<?php endif; ?>');
+
+        $blade->directive('hasanyrole', function ($expression) {
+            return "<?php if (auth()->check() && method_exists(auth()->user(), 'hasRole') && auth()->user()->hasRole(explode('|', $expression))): ?>";
+        });
+        $blade->directive('endhasanyrole', fn () => '<?php endif; ?>');
+
+        $blade->directive('hasallroles', function ($expression) {
+            return "<?php if (auth()->check() && method_exists(auth()->user(), 'hasAllRoles') && auth()->user()->hasAllRoles(explode('|', $expression))): ?>";
+        });
+        $blade->directive('endhasallroles', fn () => '<?php endif; ?>');
+
+        $blade->directive('unlessrole', function ($expression) {
+            return "<?php if (! (auth()->check() && method_exists(auth()->user(), 'hasRole') && auth()->user()->hasRole($expression))): ?>";
+        });
+        $blade->directive('endunlessrole', fn () => '<?php endif; ?>');
+
+        $blade->directive('permission', function ($expression) {
+            return "<?php if (auth()->check() && method_exists(auth()->user(), 'hasPermissionTo') && auth()->user()->hasPermissionTo($expression)): ?>";
+        });
+        $blade->directive('endpermission', fn () => '<?php endif; ?>');
+
+        $blade->directive('haspermission', function ($expression) {
+            return "<?php if (auth()->check() && method_exists(auth()->user(), 'hasPermissionTo') && auth()->user()->hasPermissionTo($expression)): ?>";
+        });
+        $blade->directive('endhaspermission', fn () => '<?php endif; ?>');
+
+        $blade->directive('hasanypermission', function ($expression) {
+            return "<?php if (auth()->check() && method_exists(auth()->user(), 'hasAnyPermission') && auth()->user()->hasAnyPermission(explode('|', $expression))): ?>";
+        });
+        $blade->directive('endhasanypermission', fn () => '<?php endif; ?>');
     }
 }
