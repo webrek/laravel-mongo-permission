@@ -37,5 +37,6 @@ class MongoPermissionServiceProvider extends ServiceProvider
         $router->aliasMiddleware('role', \Webrek\MongoPermission\Middleware\RoleMiddleware::class);
         $router->aliasMiddleware('permission', \Webrek\MongoPermission\Middleware\PermissionMiddleware::class);
         $router->aliasMiddleware('role_or_permission', \Webrek\MongoPermission\Middleware\RoleOrPermissionMiddleware::class);
+        $router->aliasMiddleware('team-context', \Webrek\MongoPermission\Middleware\TeamContextMiddleware::class);
     }
 }
