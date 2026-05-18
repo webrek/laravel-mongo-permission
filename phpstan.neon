@@ -1,0 +1,17 @@
+parameters:
+    level: 5
+    paths:
+        - src
+    excludePaths:
+        - src/helpers.php
+    ignoreErrors:
+        # Traits are analyzed through their consumers; phpstan flags them as unused when
+        # consumers live outside src/.
+        - identifier: trait.unused
+        # Eloquent dynamic property access on Models (name, guard_name, team_id, etc.).
+        - identifier: property.notFound
+          path: src/Models/*.php
+        # getKey() lives on Eloquent Model, not on the Contract interfaces.
+        - identifier: method.notFound
+          path: src/Models/*.php
+        # Generic types on Collection/array — verbose to annotate everywhere.

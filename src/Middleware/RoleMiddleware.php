@@ -15,7 +15,7 @@ class RoleMiddleware
             throw UnauthorizedException::notLoggedIn();
         }
 
-        $roles = is_array($role) ? $role : explode('|', $role);
+        $roles = explode('|', $role);
 
         if (! method_exists($user, 'hasAnyRole') || ! $user->hasAnyRole(...$roles)) {
             throw UnauthorizedException::forRoles($roles);

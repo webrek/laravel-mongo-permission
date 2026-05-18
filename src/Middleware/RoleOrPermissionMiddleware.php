@@ -15,7 +15,7 @@ class RoleOrPermissionMiddleware
             throw UnauthorizedException::notLoggedIn();
         }
 
-        $values = is_array($rolesOrPermissions) ? $rolesOrPermissions : explode('|', $rolesOrPermissions);
+        $values = explode('|', $rolesOrPermissions);
 
         if (method_exists($user, 'hasAnyRole')) {
             try {

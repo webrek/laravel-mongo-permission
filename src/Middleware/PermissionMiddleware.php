@@ -15,7 +15,7 @@ class PermissionMiddleware
             throw UnauthorizedException::notLoggedIn();
         }
 
-        $permissions = is_array($permission) ? $permission : explode('|', $permission);
+        $permissions = explode('|', $permission);
 
         if (! method_exists($user, 'hasAnyPermission') || ! $user->hasAnyPermission(...$permissions)) {
             throw UnauthorizedException::forPermissions($permissions);
