@@ -6,6 +6,18 @@ API-compatible with `spatie/laravel-permission` for the methods most
 people use day to day, but the data model, queries, and cache strategy
 are designed around MongoDB.
 
+## Requirements
+
+| Dependency | Versions |
+|---|---|
+| PHP | 8.1, 8.2, 8.3 |
+| Laravel | 10.x, 11.x, 12.x |
+| MongoDB server | 7.x |
+| `mongodb/laravel-mongodb` | `^4.0` \| `^5.0` |
+| PHP `mongodb` extension | required |
+
+CI runs every release against the full PHP × Laravel matrix above, excluding the combinations Laravel itself does not support (Laravel 11 and 12 require PHP 8.2+).
+
 ## Install
 
 ```bash
@@ -144,6 +156,30 @@ controller `authorize()` calls consult `hasPermissionTo`. Unknown
 permission names return `null` from the hook so the rest of the Gate
 stack (Policies, manually-defined gates) still runs.
 
+## Events
+
+The package dispatches eight lifecycle events. Subscribe to them for
+audit logging, cache extensions, or custom side-effects.
+
+| Event | Payload |
+|---|---|
+| `RoleCreated` | `Role $role` |
+| `RoleDeleted` | `Role $role` |
+| `PermissionCreated` | `Permission $permission` |
+| `PermissionDeleted` | `Permission $permission` |
+| `RoleAttached` | `mixed $user, Role $role, ?string $teamId, string $guard` |
+| `RoleDetached` | `mixed $user, Role $role, ?string $teamId, string $guard` |
+| `PermissionAttached` | `mixed $model, Permission $permission, ?string $teamId, string $guard` |
+| `PermissionDetached` | `mixed $model, Permission $permission, ?string $teamId, string $guard` |
+
+`PermissionAttached` / `PermissionDetached` carry the model that
+received the change — a `User` instance or a `Role` instance — so
+listeners can branch on the case. All `*Attached` / `*Detached`
+events include the active `team_id` and `guard`, enabling per-tenant
+auditing without re-querying.
+
+All event classes live in `Webrek\MongoPermission\Events`.
+
 ## Artisan commands
 
 ```bash
@@ -153,6 +189,41 @@ php artisan permission:create-permission "edit articles" [--guard=web]
 php artisan permission:show [--guard=web] [--team=...]
 php artisan permission:cache-reset
 ```
+
+## Configuration
+
+Published to `config/permission.php`:
+
+| Key | Default | Description |
+|---|---|---|
+| `models.role` | `Webrek\MongoPermission\Models\Role` | Concrete Role class — swap to extend |
+| `models.permission` | `Webrek\MongoPermission\Models\Permission` | Concrete Permission class — swap to extend |
+| `collection_names.roles` | `'roles'` | Mongo collection for roles |
+| `collection_names.permissions` | `'permissions'` | Mongo collection for permissions |
+| `guard_names` | `['web', 'api']` | Guards the package will validate against |
+| `default_guard` | `'web'` | Fallback when no guard can be resolved |
+| `teams` | `true` | Enable multi-tenant scoping by `team_id` |
+| `team_resolver` | `fn () => null` | Closure that returns the active `team_id` |
+| `strict_team_isolation` | `false` | If true, `team_id = null` no longer matches every team |
+| `enable_wildcard_permission` | `true` | Toggle wildcard matching in `hasPermissionTo` |
+| `wildcard_separator` | `'.'` | Segment separator for wildcard patterns |
+| `throw_on_missing_permission` | `true` | Throw `PermissionDoesNotExist` for unknown names instead of returning `false` |
+| `handle_unauthorized` | `true` | Let middleware throw 403 `UnauthorizedException` |
+| `cache.store` | `'default'` | Laravel Cache store for slug/catalog keys |
+| `cache.key` | `'mongo-permission'` | Namespace prefix for all package cache keys |
+| `cache.expiration_time` | `null` | `null` = forever (trust event-driven invalidation) |
+
+## Testing locally
+
+```bash
+docker compose up -d mongo
+docker compose run --rm php composer install
+docker compose run --rm php vendor/bin/phpunit
+```
+
+The repository includes a `docker-compose.yml` that boots MongoDB 7
+with a healthcheck so the test suite starts as soon as the database
+is ready. No PHP or Mongo install on the host is required.
 
 ## License
 
