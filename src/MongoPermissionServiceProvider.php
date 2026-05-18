@@ -31,6 +31,7 @@ class MongoPermissionServiceProvider extends ServiceProvider
                 \Webrek\MongoPermission\Commands\PruneExpired::class,
                 \Webrek\MongoPermission\Commands\ListUsers::class,
                 \Webrek\MongoPermission\Commands\Check::class,
+                \Webrek\MongoPermission\Commands\MigrateFromSpatie::class,
             ]);
         }
 

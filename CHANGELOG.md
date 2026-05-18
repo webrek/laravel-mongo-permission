@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-18
+
+### Added
+- `permission:migrate-from-spatie` Artisan command. Reads the five
+  canonical `spatie/laravel-permission` tables (`permissions`,
+  `roles`, `role_has_permissions`, `model_has_roles`,
+  `model_has_permissions`) plus a SQL users table out of a
+  configurable connection (`--connection=`) and writes the
+  equivalent documents into Mongo. Idempotent — a second run skips
+  existing rows by `(name, guard, team)` unless `--force` is set.
+  SQL users are matched to Mongo users by `--match-by=email` (or
+  any other field). Supports `--dry-run`, `--skip-users`, and
+  `--user-model=`. Unmatched SQL users are reported as a warning.
+
 ## [1.2.0] - 2026-05-18
 
 ### Added
@@ -114,7 +128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teams, strict isolation, wildcards, middlewares, Blade, Gate and
   commands.
 
-[Unreleased]: https://github.com/webrek/laravel-mongo-permission/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/webrek/laravel-mongo-permission/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/webrek/laravel-mongo-permission/releases/tag/v1.0.0

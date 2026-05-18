@@ -291,7 +291,41 @@ php artisan permission:cache-reset
 php artisan permission:prune-expired [--user-model=...] [--dry-run]
 php artisan permission:list-users {role} [--permission=...] [--guard=...] [--team=...]
 php artisan permission:check {user_id} {permission} [--guard=...] [--team=...]
+php artisan permission:migrate-from-spatie [--connection=mysql] [--match-by=email] [--skip-users] [--force] [--dry-run]
 ```
+
+## Migrating from spatie/laravel-permission
+
+If you are coming from an existing
+[`spatie/laravel-permission`](https://github.com/spatie/laravel-permission)
+deployment, `permission:migrate-from-spatie` reads the canonical
+spatie tables out of a SQL connection and writes the equivalent
+documents into the package's Mongo collections.
+
+```bash
+# Dry-run against your "spatie" SQL connection
+php artisan permission:migrate-from-spatie --connection=spatie --dry-run
+
+# Real run, matching SQL users to Mongo users by email
+php artisan permission:migrate-from-spatie --connection=spatie
+
+# Roles and permissions only, no user assignments
+php artisan permission:migrate-from-spatie --connection=spatie --skip-users
+
+# Overwrite Mongo roles/permissions that already exist with the same (name, guard, team)
+php artisan permission:migrate-from-spatie --connection=spatie --force
+```
+
+The command reads these five spatie tables: `permissions`, `roles`,
+`role_has_permissions`, `model_has_roles`, `model_has_permissions`,
+plus the SQL `users` table (override with `--sql-user-table=`) to
+match SQL user ids to Mongo user documents.
+
+Matching defaults to `email` (override with `--match-by=`). Any SQL
+user without a corresponding Mongo user is reported but does not
+break the run. The migration is idempotent: a second run skips
+roles and permissions that already exist with the same (name,
+guard, team) tuple.
 
 ## Configuration
 
