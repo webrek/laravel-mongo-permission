@@ -2,8 +2,10 @@
 
 namespace Webrek\MongoPermission\Traits;
 
+use DateTimeInterface;
 use Illuminate\Support\Collection;
 use Webrek\MongoPermission\Contracts\Role as RoleContract;
+use Webrek\MongoPermission\Support\Expiry;
 
 trait HasRoles
 {
@@ -12,13 +14,26 @@ trait HasRoles
     public function roles(): Collection
     {
         $roleClass = config('permission.models.role');
-        $ids = collect($this->role_ids ?? [])->pluck('role_id')->all();
+        $ids = collect($this->role_ids ?? [])
+            ->filter(fn ($e) => Expiry::notExpired((array) $e))
+            ->pluck('role_id')
+            ->all();
         return $roleClass::query()->whereIn('_id', $ids)->get();
     }
 
     public function assignRole(...$roles): self
     {
-        $ids = $this->resolveRoleIds($this->flattenInput($roles));
+        return $this->attachRoles($this->flattenInput($roles), null);
+    }
+
+    public function assignRoleUntil(string|RoleContract $role, DateTimeInterface $expiresAt): self
+    {
+        return $this->attachRoles([$role], $expiresAt);
+    }
+
+    protected function attachRoles(array $roles, ?DateTimeInterface $expiresAt): self
+    {
+        $ids = $this->resolveRoleIds($roles);
         $current = collect($this->role_ids ?? [])
             ->map(fn ($e) => (string) ($e['role_id'] ?? null))
             ->all();
@@ -29,9 +44,14 @@ trait HasRoles
         }
 
         $activeTeam = $this->activeTeamId();
+        $expiresBson = Expiry::toBson($expiresAt);
         $merged = $this->role_ids ?? [];
         foreach ($toAdd as $id) {
-            $merged[] = ['role_id' => $id, 'team_id' => $activeTeam];
+            $merged[] = [
+                'role_id' => $id,
+                'team_id' => $activeTeam,
+                'expires_at' => $expiresBson,
+            ];
         }
         $this->role_ids = $merged;
         $this->save();
@@ -122,6 +142,9 @@ trait HasRoles
             $id = $this->resolveRoleId($r, $guard);
             $hit = collect($this->role_ids ?? [])->contains(function ($e) use ($id, $activeTeam, $strict) {
                 if ((string) ($e['role_id'] ?? null) !== $id) {
+                    return false;
+                }
+                if (Expiry::isExpired((array) $e)) {
                     return false;
                 }
                 $entryTeam = $e['team_id'] ?? null;

@@ -2,20 +2,35 @@
 
 namespace Webrek\MongoPermission\Traits;
 
+use DateTimeInterface;
 use Webrek\MongoPermission\Contracts\Permission as PermissionContract;
+use Webrek\MongoPermission\Support\Expiry;
 
 trait HasPermissions
 {
     public function permissions()
     {
         $permClass = config('permission.models.permission');
-        $ids = collect($this->permission_ids ?? [])->pluck('permission_id')->all();
+        $ids = collect($this->permission_ids ?? [])
+            ->filter(fn ($e) => Expiry::notExpired((array) $e))
+            ->pluck('permission_id')
+            ->all();
         return $permClass::query()->whereIn('_id', $ids)->get();
     }
 
     public function givePermissionTo(...$permissions): self
     {
-        $ids = $this->resolvePermissionIds($this->flattenInput($permissions));
+        return $this->attachPermissions($this->flattenInput($permissions), null);
+    }
+
+    public function givePermissionToUntil(string|PermissionContract $permission, DateTimeInterface $expiresAt): self
+    {
+        return $this->attachPermissions([$permission], $expiresAt);
+    }
+
+    protected function attachPermissions(array $permissions, ?DateTimeInterface $expiresAt): self
+    {
+        $ids = $this->resolvePermissionIds($permissions);
         $current = collect($this->permission_ids ?? [])
             ->map(fn ($e) => (string) ($e['permission_id'] ?? null))
             ->all();
@@ -26,9 +41,14 @@ trait HasPermissions
         }
 
         $activeTeam = $this->activeTeamId();
+        $expiresBson = Expiry::toBson($expiresAt);
         $merged = $this->permission_ids ?? [];
         foreach ($toAdd as $id) {
-            $merged[] = ['permission_id' => $id, 'team_id' => $activeTeam];
+            $merged[] = [
+                'permission_id' => $id,
+                'team_id' => $activeTeam,
+                'expires_at' => $expiresBson,
+            ];
         }
         $this->permission_ids = $merged;
         $this->save();
@@ -146,6 +166,9 @@ trait HasPermissions
 
         return collect($this->permission_ids ?? [])->contains(function ($e) use ($id, $activeTeam, $strict) {
             if ((string) ($e['permission_id'] ?? null) !== $id) {
+                return false;
+            }
+            if (Expiry::isExpired((array) $e)) {
                 return false;
             }
             $entryTeam = $e['team_id'] ?? null;

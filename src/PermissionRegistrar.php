@@ -2,14 +2,16 @@
 
 namespace Webrek\MongoPermission;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Webrek\MongoPermission\Support\Expiry;
 
 class PermissionRegistrar
 {
     protected ?string $teamId = null;
     protected bool $teamIdExplicitlySet = false;
 
-    /** @var array<string, array<int, string>> in-memory cache for the current request */
+    /** @var array<string, array<int, array{name: string, expires_at: int|null}>> */
     protected array $memo = [];
 
     public function setTeamId(?string $teamId): self
@@ -43,12 +45,12 @@ class PermissionRegistrar
 
     public function getUserPermissionSlugs(object $user): array
     {
-        return $this->slugsFor($user, 'permissions');
+        return $this->namesFromEntries($this->entriesFor($user, 'permissions'));
     }
 
     public function getUserRoleSlugs(object $user): array
     {
-        return $this->slugsFor($user, 'roles');
+        return $this->namesFromEntries($this->entriesFor($user, 'roles'));
     }
 
     public function forgetUserCache(string $userId, ?string $teamId): void
@@ -66,7 +68,10 @@ class PermissionRegistrar
         $this->memo = [];
     }
 
-    protected function slugsFor(object $user, string $kind): array
+    /**
+     * @return array<int, array{name: string, expires_at: int|null}>
+     */
+    protected function entriesFor(object $user, string $kind): array
     {
         $key = $this->cacheKey((string) $user->getKey(), $this->getTeamId(), $kind);
 
@@ -74,74 +79,169 @@ class PermissionRegistrar
             return $this->memo[$key];
         }
 
-        $slugs = Cache::rememberForever($key, function () use ($user, $kind): array {
+        $entries = Cache::rememberForever($key, function () use ($user, $kind): array {
             return $kind === 'permissions'
-                ? $this->loadPermissionSlugs($user)
-                : $this->loadRoleSlugs($user);
+                ? $this->loadPermissionEntries($user)
+                : $this->loadRoleEntries($user);
         });
 
-        return $this->memo[$key] = $slugs;
+        return $this->memo[$key] = $entries;
     }
 
-    protected function loadPermissionSlugs(object $user): array
+    /**
+     * Distill the cached entries into a flat list of currently-active slugs,
+     * filtering out anything whose expires_at has passed.
+     *
+     * @param array<int, array{name: string, expires_at: int|null}> $entries
+     * @return array<int, string>
+     */
+    protected function namesFromEntries(array $entries): array
+    {
+        $now = Carbon::now()->getTimestamp();
+        $active = [];
+        foreach ($entries as $entry) {
+            $exp = $entry['expires_at'] ?? null;
+            if ($exp !== null && $exp <= $now) {
+                continue;
+            }
+            $active[$entry['name']] = true;
+        }
+        return array_keys($active);
+    }
+
+    /**
+     * @return array<int, array{name: string, expires_at: int|null}>
+     */
+    protected function loadPermissionEntries(object $user): array
     {
         $permClass = config('permission.models.permission');
         $roleClass = config('permission.models.role');
 
-        $directIds = collect($user->permission_ids ?? [])
-            ->filter(fn ($e) => $this->teamMatches($e['team_id'] ?? null))
-            ->pluck('permission_id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
-
-        $roleIds = collect($user->role_ids ?? [])
-            ->filter(fn ($e) => $this->teamMatches($e['team_id'] ?? null))
-            ->pluck('role_id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
-
-        $rolePermIds = [];
-        if (! empty($roleIds)) {
-            $rolePermIds = $roleClass::query()
-                ->whereIn('_id', $roleIds)
-                ->get()
-                ->flatMap(fn ($r) => $r->permission_ids ?? [])
-                ->map(fn ($id) => (string) $id)
-                ->unique()
-                ->all();
+        // Direct permission grants on the user.
+        $directGrants = [];
+        foreach ($user->permission_ids ?? [] as $e) {
+            $e = (array) $e;
+            if (! $this->teamMatches($e['team_id'] ?? null)) {
+                continue;
+            }
+            $directGrants[] = [
+                'permission_id' => (string) ($e['permission_id'] ?? ''),
+                'expires_at' => $this->expiryTimestamp($e),
+            ];
         }
 
-        $allIds = array_values(array_unique(array_merge($directIds, $rolePermIds)));
-        if (empty($allIds)) {
+        // Role assignments — each carries its own expiry which propagates to the
+        // permissions reached through that role.
+        $roleAssignments = [];
+        foreach ($user->role_ids ?? [] as $e) {
+            $e = (array) $e;
+            if (! $this->teamMatches($e['team_id'] ?? null)) {
+                continue;
+            }
+            $roleAssignments[] = [
+                'role_id' => (string) ($e['role_id'] ?? ''),
+                'expires_at' => $this->expiryTimestamp($e),
+            ];
+        }
+
+        $roleIds = array_values(array_unique(array_column($roleAssignments, 'role_id')));
+        $rolesById = [];
+        if (! empty($roleIds)) {
+            $rolesById = $roleClass::query()
+                ->whereIn('_id', $roleIds)
+                ->get()
+                ->keyBy(fn ($r) => (string) $r->getKey());
+        }
+
+        $grants = $directGrants;
+        foreach ($roleAssignments as $assignment) {
+            $role = $rolesById[$assignment['role_id']] ?? null;
+            if (! $role) {
+                continue;
+            }
+            foreach ($role->permission_ids ?? [] as $pid) {
+                $grants[] = [
+                    'permission_id' => (string) $pid,
+                    'expires_at' => $assignment['expires_at'],
+                ];
+            }
+        }
+
+        if (empty($grants)) {
             return [];
         }
 
-        return $permClass::query()
-            ->whereIn('_id', $allIds)
+        $permIds = array_values(array_unique(array_column($grants, 'permission_id')));
+        $permsById = $permClass::query()
+            ->whereIn('_id', $permIds)
             ->get()
-            ->pluck('name')
-            ->all();
+            ->keyBy(fn ($p) => (string) $p->getKey());
+
+        $entries = [];
+        foreach ($grants as $grant) {
+            $perm = $permsById[$grant['permission_id']] ?? null;
+            if (! $perm) {
+                continue;
+            }
+            $entries[] = [
+                'name' => $perm->name,
+                'expires_at' => $grant['expires_at'],
+            ];
+        }
+        return $entries;
     }
 
-    protected function loadRoleSlugs(object $user): array
+    /**
+     * @return array<int, array{name: string, expires_at: int|null}>
+     */
+    protected function loadRoleEntries(object $user): array
     {
         $roleClass = config('permission.models.role');
 
-        $ids = collect($user->role_ids ?? [])
-            ->filter(fn ($e) => $this->teamMatches($e['team_id'] ?? null))
-            ->pluck('role_id')
-            ->map(fn ($id) => (string) $id)
-            ->all();
+        $assignments = [];
+        foreach ($user->role_ids ?? [] as $e) {
+            $e = (array) $e;
+            if (! $this->teamMatches($e['team_id'] ?? null)) {
+                continue;
+            }
+            $assignments[] = [
+                'role_id' => (string) ($e['role_id'] ?? ''),
+                'expires_at' => $this->expiryTimestamp($e),
+            ];
+        }
 
-        if (empty($ids)) {
+        if (empty($assignments)) {
             return [];
         }
 
-        return $roleClass::query()
-            ->whereIn('_id', $ids)
+        $roleIds = array_values(array_unique(array_column($assignments, 'role_id')));
+        $rolesById = $roleClass::query()
+            ->whereIn('_id', $roleIds)
             ->get()
-            ->pluck('name')
-            ->all();
+            ->keyBy(fn ($r) => (string) $r->getKey());
+
+        $entries = [];
+        foreach ($assignments as $assignment) {
+            $role = $rolesById[$assignment['role_id']] ?? null;
+            if (! $role) {
+                continue;
+            }
+            $entries[] = [
+                'name' => $role->name,
+                'expires_at' => $assignment['expires_at'],
+            ];
+        }
+        return $entries;
+    }
+
+    /**
+     * Pull the expiry off a grant subdoc and normalize it to a unix timestamp,
+     * or null when the grant has no expiry.
+     */
+    protected function expiryTimestamp(array $entry): ?int
+    {
+        $dt = Expiry::toDateTime($entry['expires_at'] ?? null);
+        return $dt?->getTimestamp();
     }
 
     protected function teamMatches(?string $entryTeam): bool

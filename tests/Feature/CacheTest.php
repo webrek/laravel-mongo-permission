@@ -27,7 +27,7 @@ class CacheTest extends TestCase
         $cached = Cache::get($key);
 
         $this->assertIsArray($cached);
-        $this->assertContains('edit', $cached);
+        $this->assertContains('edit', array_column($cached, 'name'));
     }
 
     public function test_subsequent_has_permission_to_does_not_hit_mongo(): void
