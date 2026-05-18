@@ -17,6 +17,10 @@ class MongoPermissionServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__ . '/../config/permission.php' => config_path('permission.php'),
             ], 'permission-config');
+
+            $this->commands([
+                \Webrek\MongoPermission\Commands\CreateIndexes::class,
+            ]);
         }
     }
 }
