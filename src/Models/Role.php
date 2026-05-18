@@ -36,6 +36,18 @@ class Role extends Model implements RoleContract
                 throw RoleAlreadyExists::create($role->name, $role->guard_name);
             }
         });
+
+        static::deleted(function (self $role): void {
+            $id = (string) $role->getKey();
+            $userClass = config('auth.providers.users.model');
+            if ($userClass) {
+                $userInstance = new $userClass;
+                $userInstance->getConnection()
+                    ->getMongoDB()
+                    ->selectCollection($userInstance->getTable())
+                    ->updateMany([], ['$pull' => ['role_ids' => ['role_id' => $id]]]);
+            }
+        });
     }
 
     public static function findByName(string $name, ?string $guardName = null): self

@@ -33,6 +33,27 @@ class Permission extends Model implements PermissionContract
                 throw PermissionAlreadyExists::create($perm->name, $perm->guard_name);
             }
         });
+
+        static::deleted(function (self $perm): void {
+            $id = (string) $perm->getKey();
+
+            // Resolve user model and its collection from Auth config (fallback 'users')
+            $userClass = config('auth.providers.users.model');
+            if ($userClass) {
+                $userInstance = new $userClass;
+                $userInstance->getConnection()
+                    ->getMongoDB()
+                    ->selectCollection($userInstance->getTable())
+                    ->updateMany([], ['$pull' => ['permission_ids' => ['permission_id' => $id]]]);
+            }
+
+            // Pull from roles.permission_ids
+            $roleClass = config('permission.models.role');
+            $roleClass::query()->where('permission_ids', $id)->each(function ($role) use ($id): void {
+                $role->permission_ids = array_values(array_diff($role->permission_ids ?? [], [$id]));
+                $role->saveQuietly();
+            });
+        });
     }
 
     public static function findByName(string $name, ?string $guardName = null): self
