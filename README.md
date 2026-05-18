@@ -35,10 +35,13 @@ $user->hasPermissionTo('edit articles'); // true
 
 ## Status
 
-This package is under active development. The current release (Plan 1)
-covers models, traits, and cascade deletion. Cache, multi-tenant teams,
-multi-guard, middleware, Blade directives and wildcard permissions are
-planned for follow-up releases.
+This package is under active development. The current release covers
+models, traits, cascade deletion, multi-tenant teams (with optional
+strict isolation), multi-guard resolution, request-scoped and persistent
+caching with event-driven invalidation, and the `permission:create-indexes`
+and `permission:cache-reset` Artisan commands. Middleware, Blade
+directives, Gate integration, and wildcard permissions are planned for
+the next release.
 
 ## Caching
 
