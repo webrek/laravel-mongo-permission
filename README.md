@@ -100,12 +100,12 @@ php artisan permission:cache-reset
 Configure the cache store and key namespace in `config/permission.php`
 under the `cache` key.
 
-**Known limitation:** changing the permission catalog of a role
-(e.g. `$role->givePermissionTo(...)` / `$role->revokePermissionTo(...)`)
-does not automatically invalidate the cached slug arrays of every user
-holding that role — invalidation is per-user, fired by per-user attach
-or detach events. Run `permission:cache-reset` after bulk role-catalog
-edits, or rebuild the cache user-by-user.
+Changing a role or permission — including a raw model save (e.g. from an
+admin panel) or a deletion — invalidates every cached slug array at once by
+bumping a cache *generation* that is folded into the cache keys. Per-user
+changes (`assignRole`, `removeRole`, `givePermissionTo`, …) still invalidate
+only the affected user via events. So edits made anywhere take effect on the
+next request without a manual reset.
 
 ## Multi-guard
 
