@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-08
+
+### Fixed
+- Read assignments stored in the legacy "flat" form (a plain array of id
+  strings, e.g. as written by Maklad) in addition to the structured
+  subdocument form this package writes. Previously `hasRole()`,
+  `hasPermissionTo()`, `roles()` and `permissions()` returned nothing for
+  users whose `role_ids` / `permission_ids` were flat string arrays, which
+  caused `role:` / `permission:` middleware to return `403` for those users.
+  Both forms now coexist, so legacy data keeps working and is upgraded in
+  place as roles/permissions are assigned. The fix is applied consistently
+  across `HasRoles`, `HasPermissions` and `PermissionRegistrar` via a shared
+  `Support\Entry` normaliser.
+
+### Added
+- `Support\Entry` helper that normalises a role/permission entry (flat string
+  or structured array) to a consistent `{id, team_id, expires_at}` shape.
+
 ## [1.3.0] - 2026-05-18
 
 ### Added

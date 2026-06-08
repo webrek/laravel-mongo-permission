@@ -4,6 +4,7 @@ namespace Webrek\MongoPermission\Traits;
 
 use DateTimeInterface;
 use Webrek\MongoPermission\Contracts\Permission as PermissionContract;
+use Webrek\MongoPermission\Support\Entry;
 use Webrek\MongoPermission\Support\Expiry;
 
 trait HasPermissions
@@ -12,8 +13,9 @@ trait HasPermissions
     {
         $permClass = config('permission.models.permission');
         $ids = collect($this->permission_ids ?? [])
-            ->filter(fn ($e) => Expiry::notExpired((array) $e))
-            ->pluck('permission_id')
+            ->map(fn ($e) => Entry::normalize($e, 'permission_id'))
+            ->filter(fn ($n) => $n['id'] !== null && Expiry::notExpired($n))
+            ->pluck('id')
             ->all();
         return $permClass::query()->whereIn('_id', $ids)->get();
     }
@@ -31,9 +33,7 @@ trait HasPermissions
     protected function attachPermissions(array $permissions, ?DateTimeInterface $expiresAt): self
     {
         $ids = $this->resolvePermissionIds($permissions);
-        $current = collect($this->permission_ids ?? [])
-            ->map(fn ($e) => (string) ($e['permission_id'] ?? null))
-            ->all();
+        $current = Entry::ids($this->permission_ids ?? [], 'permission_id');
 
         $toAdd = array_diff($ids, $current);
         if (empty($toAdd)) {
@@ -71,13 +71,13 @@ trait HasPermissions
     {
         $ids = $this->resolvePermissionIds($this->flattenInput($permissions));
         $remaining = collect($this->permission_ids ?? [])
-            ->reject(fn ($e) => in_array((string) ($e['permission_id'] ?? null), $ids, strict: true))
+            ->reject(fn ($e) => in_array(Entry::normalize($e, 'permission_id')['id'], $ids, strict: true))
             ->values()
             ->all();
 
         $removed = array_diff(
-            collect($this->permission_ids ?? [])->map(fn ($e) => (string) ($e['permission_id'] ?? null))->all(),
-            collect($remaining)->map(fn ($e) => (string) ($e['permission_id'] ?? null))->all(),
+            Entry::ids($this->permission_ids ?? [], 'permission_id'),
+            Entry::ids($remaining, 'permission_id'),
         );
 
         $this->permission_ids = $remaining;
@@ -104,9 +104,7 @@ trait HasPermissions
     public function syncPermissions(...$permissions): self
     {
         $targetIds = $this->resolvePermissionIds($this->flattenInput($permissions));
-        $currentIds = collect($this->permission_ids ?? [])
-            ->map(fn ($e) => (string) ($e['permission_id'] ?? null))
-            ->all();
+        $currentIds = Entry::ids($this->permission_ids ?? [], 'permission_id');
 
         $toRemove = array_diff($currentIds, $targetIds);
         $toAdd = array_diff($targetIds, $currentIds);
@@ -165,13 +163,14 @@ trait HasPermissions
         $strict = (bool) config('permission.strict_team_isolation', false);
 
         return collect($this->permission_ids ?? [])->contains(function ($e) use ($id, $activeTeam, $strict) {
-            if ((string) ($e['permission_id'] ?? null) !== $id) {
+            $n = Entry::normalize($e, 'permission_id');
+            if ($n['id'] !== $id) {
                 return false;
             }
-            if (Expiry::isExpired((array) $e)) {
+            if (Expiry::isExpired($n)) {
                 return false;
             }
-            $entryTeam = $e['team_id'] ?? null;
+            $entryTeam = $n['team_id'];
             if (! config('permission.teams', false)) {
                 return true;
             }

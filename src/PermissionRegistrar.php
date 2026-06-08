@@ -4,6 +4,7 @@ namespace Webrek\MongoPermission;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Webrek\MongoPermission\Support\Entry;
 use Webrek\MongoPermission\Support\Expiry;
 
 class PermissionRegistrar
@@ -120,13 +121,13 @@ class PermissionRegistrar
         // Direct permission grants on the user.
         $directGrants = [];
         foreach ($user->permission_ids ?? [] as $e) {
-            $e = (array) $e;
-            if (! $this->teamMatches($e['team_id'] ?? null)) {
+            $n = Entry::normalize($e, 'permission_id');
+            if (! $this->teamMatches($n['team_id'])) {
                 continue;
             }
             $directGrants[] = [
-                'permission_id' => (string) ($e['permission_id'] ?? ''),
-                'expires_at' => $this->expiryTimestamp($e),
+                'permission_id' => (string) ($n['id'] ?? ''),
+                'expires_at' => $this->expiryTimestamp($n),
             ];
         }
 
@@ -134,13 +135,13 @@ class PermissionRegistrar
         // permissions reached through that role.
         $roleAssignments = [];
         foreach ($user->role_ids ?? [] as $e) {
-            $e = (array) $e;
-            if (! $this->teamMatches($e['team_id'] ?? null)) {
+            $n = Entry::normalize($e, 'role_id');
+            if (! $this->teamMatches($n['team_id'])) {
                 continue;
             }
             $roleAssignments[] = [
-                'role_id' => (string) ($e['role_id'] ?? ''),
-                'expires_at' => $this->expiryTimestamp($e),
+                'role_id' => (string) ($n['id'] ?? ''),
+                'expires_at' => $this->expiryTimestamp($n),
             ];
         }
 
@@ -204,13 +205,13 @@ class PermissionRegistrar
 
         $assignments = [];
         foreach ($user->role_ids ?? [] as $e) {
-            $e = (array) $e;
-            if (! $this->teamMatches($e['team_id'] ?? null)) {
+            $n = Entry::normalize($e, 'role_id');
+            if (! $this->teamMatches($n['team_id'])) {
                 continue;
             }
             $assignments[] = [
-                'role_id' => (string) ($e['role_id'] ?? ''),
-                'expires_at' => $this->expiryTimestamp($e),
+                'role_id' => (string) ($n['id'] ?? ''),
+                'expires_at' => $this->expiryTimestamp($n),
             ];
         }
 

@@ -5,6 +5,7 @@ namespace Webrek\MongoPermission\Traits;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
 use Webrek\MongoPermission\Contracts\Role as RoleContract;
+use Webrek\MongoPermission\Support\Entry;
 use Webrek\MongoPermission\Support\Expiry;
 
 trait HasRoles
@@ -15,8 +16,9 @@ trait HasRoles
     {
         $roleClass = config('permission.models.role');
         $ids = collect($this->role_ids ?? [])
-            ->filter(fn ($e) => Expiry::notExpired((array) $e))
-            ->pluck('role_id')
+            ->map(fn ($e) => Entry::normalize($e, 'role_id'))
+            ->filter(fn ($n) => $n['id'] !== null && Expiry::notExpired($n))
+            ->pluck('id')
             ->all();
         return $roleClass::query()->whereIn('_id', $ids)->get();
     }
@@ -34,9 +36,7 @@ trait HasRoles
     protected function attachRoles(array $roles, ?DateTimeInterface $expiresAt): self
     {
         $ids = $this->resolveRoleIds($roles);
-        $current = collect($this->role_ids ?? [])
-            ->map(fn ($e) => (string) ($e['role_id'] ?? null))
-            ->all();
+        $current = Entry::ids($this->role_ids ?? [], 'role_id');
 
         $toAdd = array_diff($ids, $current);
         if (empty($toAdd)) {
@@ -74,13 +74,13 @@ trait HasRoles
     {
         $ids = $this->resolveRoleIds($this->flattenInput($roles));
         $remaining = collect($this->role_ids ?? [])
-            ->reject(fn ($e) => in_array((string) ($e['role_id'] ?? null), $ids, strict: true))
+            ->reject(fn ($e) => in_array(Entry::normalize($e, 'role_id')['id'], $ids, strict: true))
             ->values()
             ->all();
 
         $removed = array_diff(
-            collect($this->role_ids ?? [])->map(fn ($e) => (string) ($e['role_id'] ?? null))->all(),
-            collect($remaining)->map(fn ($e) => (string) ($e['role_id'] ?? null))->all(),
+            Entry::ids($this->role_ids ?? [], 'role_id'),
+            Entry::ids($remaining, 'role_id'),
         );
 
         $this->role_ids = $remaining;
@@ -107,9 +107,7 @@ trait HasRoles
     public function syncRoles(...$roles): self
     {
         $targetIds = $this->resolveRoleIds($this->flattenInput($roles));
-        $currentIds = collect($this->role_ids ?? [])
-            ->map(fn ($e) => (string) ($e['role_id'] ?? null))
-            ->all();
+        $currentIds = Entry::ids($this->role_ids ?? [], 'role_id');
 
         $toRemove = array_diff($currentIds, $targetIds);
         $toAdd = array_diff($targetIds, $currentIds);
@@ -141,13 +139,14 @@ trait HasRoles
         foreach ($names as $r) {
             $id = $this->resolveRoleId($r, $guard);
             $hit = collect($this->role_ids ?? [])->contains(function ($e) use ($id, $activeTeam, $strict) {
-                if ((string) ($e['role_id'] ?? null) !== $id) {
+                $n = Entry::normalize($e, 'role_id');
+                if ($n['id'] !== $id) {
                     return false;
                 }
-                if (Expiry::isExpired((array) $e)) {
+                if (Expiry::isExpired($n)) {
                     return false;
                 }
-                $entryTeam = $e['team_id'] ?? null;
+                $entryTeam = $n['team_id'];
                 if (! config('permission.teams', false)) {
                     return true;
                 }
