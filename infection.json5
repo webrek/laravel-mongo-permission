@@ -1,0 +1,19 @@
+{
+    "$schema": "vendor/infection/infection/resources/schema.json",
+    "source": {
+        "directories": ["src"],
+        "excludes": [
+            "MongoPermissionServiceProvider.php",
+            "Testing/MongoPermissionAssertions.php"
+        ]
+    },
+    "mutators": {
+        "@default": true,
+        "ProtectedVisibility": false
+    },
+    "minMsi": 80,
+    "minCoveredMsi": 90,
+    "logs": {
+        "text": ".infection/infection.log"
+    }
+}
