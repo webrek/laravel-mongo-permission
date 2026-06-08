@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-08
+
+### Changed
+- **Dropped support for Laravel 10/11 and PHP 8.1.** Both Laravel 10 and 11 are
+  past their security-support window and can no longer be installed cleanly, so
+  the package now targets **Laravel 12 / PHP 8.2+**. `composer.json`, the
+  requirements table and the CI matrix are aligned accordingly.
+
+### Fixed
+- Role and permission **deletion** now also removes references stored in the
+  legacy "flat" form (a bare id string) from users, not just the structured
+  subdocument form — so deleting a role/permission no longer leaves orphaned
+  ids behind on documents written by older tooling.
+- **Cache invalidation on role/permission changes.** Editing or deleting a role
+  or permission (including a raw model save, e.g. from an admin panel) now
+  invalidates the cached role/permission entries via a cache generation bump.
+  Previously, because entries are cached with `rememberForever`, such changes
+  could leave users with stale permissions indefinitely.
+
+### Added
+- `PermissionRegistrar::bumpCacheVersion()` and `cacheVersion()`, and the cache
+  key now includes the generation so a single bump invalidates every entry.
+- Mutation testing (Infection) wired into CI.
+
 ## [1.4.0] - 2026-06-08
 
 ### Fixed

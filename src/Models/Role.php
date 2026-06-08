@@ -46,17 +46,25 @@ class Role extends Model implements RoleContract
             event(new \Webrek\MongoPermission\Events\RoleCreated($role));
         });
 
+        static::saved(function (): void {
+            app(\Webrek\MongoPermission\PermissionRegistrar::class)->bumpCacheVersion();
+        });
+
         static::deleted(function (self $role): void {
             $id = (string) $role->getKey();
             $userClass = config('auth.providers.users.model');
             if ($userClass) {
                 $userInstance = new $userClass;
-                $userInstance->getConnection()
+                $collection = $userInstance->getConnection()
                     ->getMongoDB()
-                    ->selectCollection($userInstance->getTable())
-                    ->updateMany([], ['$pull' => ['role_ids' => ['role_id' => $id]]]);
+                    ->selectCollection($userInstance->getTable());
+                // Remove both the structured form ({role_id: id}) and the legacy
+                // flat form (the bare id string) so old data is cleaned up too.
+                $collection->updateMany([], ['$pull' => ['role_ids' => ['role_id' => $id]]]);
+                $collection->updateMany([], ['$pull' => ['role_ids' => $id]]);
             }
 
+            app(\Webrek\MongoPermission\PermissionRegistrar::class)->bumpCacheVersion();
             event(new \Webrek\MongoPermission\Events\RoleDeleted($role));
         });
     }

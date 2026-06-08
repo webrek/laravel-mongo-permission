@@ -15,6 +15,8 @@ class PermissionRegistrar
     /** @var array<string, array<int, array{name: string, expires_at: int|null}>> */
     protected array $memo = [];
 
+    protected ?int $version = null;
+
     public function setTeamId(?string $teamId): self
     {
         $this->teamId = $teamId;
@@ -67,6 +69,31 @@ class PermissionRegistrar
     {
         Cache::flush();
         $this->memo = [];
+        $this->version = null;
+    }
+
+    /**
+     * The current cache generation. Folded into every cache key so a single
+     * bump invalidates all cached role/permission entries at once — used when a
+     * role or permission is changed or deleted, which can affect many users
+     * (including transitively through role inheritance).
+     */
+    public function cacheVersion(): int
+    {
+        return $this->version ??= (int) Cache::get($this->versionKey(), 0);
+    }
+
+    public function bumpCacheVersion(): void
+    {
+        $next = $this->cacheVersion() + 1;
+        Cache::forever($this->versionKey(), $next);
+        $this->version = $next;
+        $this->memo = [];
+    }
+
+    protected function versionKey(): string
+    {
+        return config('permission.cache.key', 'mongo-permission') . '.version';
     }
 
     /**
@@ -262,10 +289,10 @@ class PermissionRegistrar
         return $entryTeam === $active || $entryTeam === null;
     }
 
-    protected function cacheKey(string $userId, ?string $teamId, string $kind): string
+    public function cacheKey(string $userId, ?string $teamId, string $kind): string
     {
         $ns = config('permission.cache.key', 'mongo-permission');
         $team = $teamId ?? 'null';
-        return "{$ns}.user.{$userId}.team.{$team}.{$kind}";
+        return "{$ns}.v{$this->cacheVersion()}.user.{$userId}.team.{$team}.{$kind}";
     }
 }

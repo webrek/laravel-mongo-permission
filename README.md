@@ -10,13 +10,13 @@ are designed around MongoDB.
 
 | Dependency | Versions |
 |---|---|
-| PHP | 8.1, 8.2, 8.3 |
-| Laravel | 10.x, 11.x, 12.x |
+| PHP | 8.2, 8.3, 8.4 |
+| Laravel | 12.x |
 | MongoDB server | 7.x |
-| `mongodb/laravel-mongodb` | `^4.0` \| `^5.0` |
+| `mongodb/laravel-mongodb` | `^5.0` |
 | PHP `mongodb` extension | required |
 
-CI runs every release against the full PHP × Laravel matrix above, excluding the combinations Laravel itself does not support (Laravel 11 and 12 require PHP 8.2+).
+CI runs every release against the full PHP × Laravel matrix above. Laravel 10 and 11 are no longer supported (both are past their security-support window and can no longer be installed cleanly).
 
 ## Install
 

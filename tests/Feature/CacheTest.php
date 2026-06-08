@@ -19,11 +19,7 @@ class CacheTest extends TestCase
 
         $user->fresh()->hasPermissionTo('edit'); // populates the cache
 
-        $key = sprintf(
-            'mongo-permission.user.%s.team.%s.permissions',
-            $user->getKey(),
-            'null',
-        );
+        $key = app(PermissionRegistrar::class)->cacheKey((string) $user->getKey(), null, 'permissions');
         $cached = Cache::get($key);
 
         $this->assertIsArray($cached);
@@ -58,7 +54,7 @@ class CacheTest extends TestCase
         $user->givePermissionTo('edit');
         $user->fresh()->hasPermissionTo('edit');   // warm
 
-        $key = sprintf('mongo-permission.user.%s.team.null.permissions', $user->getKey());
+        $key = app(PermissionRegistrar::class)->cacheKey((string) $user->getKey(), null, 'permissions');
         $this->assertNotNull(Cache::get($key));
 
         $this->artisan('permission:cache-reset')->assertExitCode(0);

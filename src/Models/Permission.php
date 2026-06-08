@@ -43,6 +43,10 @@ class Permission extends Model implements PermissionContract
             event(new \Webrek\MongoPermission\Events\PermissionCreated($perm));
         });
 
+        static::saved(function (): void {
+            app(\Webrek\MongoPermission\PermissionRegistrar::class)->bumpCacheVersion();
+        });
+
         static::deleted(function (self $perm): void {
             $id = (string) $perm->getKey();
 
@@ -50,10 +54,13 @@ class Permission extends Model implements PermissionContract
             $userClass = config('auth.providers.users.model');
             if ($userClass) {
                 $userInstance = new $userClass;
-                $userInstance->getConnection()
+                $collection = $userInstance->getConnection()
                     ->getMongoDB()
-                    ->selectCollection($userInstance->getTable())
-                    ->updateMany([], ['$pull' => ['permission_ids' => ['permission_id' => $id]]]);
+                    ->selectCollection($userInstance->getTable());
+                // Remove both the structured form ({permission_id: id}) and the
+                // legacy flat form (the bare id string).
+                $collection->updateMany([], ['$pull' => ['permission_ids' => ['permission_id' => $id]]]);
+                $collection->updateMany([], ['$pull' => ['permission_ids' => $id]]);
             }
 
             // Pull from roles.permission_ids
@@ -63,6 +70,7 @@ class Permission extends Model implements PermissionContract
                 $role->saveQuietly();
             });
 
+            app(\Webrek\MongoPermission\PermissionRegistrar::class)->bumpCacheVersion();
             event(new \Webrek\MongoPermission\Events\PermissionDeleted($perm));
         });
     }

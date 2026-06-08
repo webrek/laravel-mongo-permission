@@ -82,4 +82,54 @@ class LegacyFlatDataTest extends TestCase
         $this->assertTrue($fresh->hasRole('admin'));   // legacy role preserved
         $this->assertTrue($fresh->hasRole('editor'));  // new role added
     }
+
+    public function test_deleting_a_role_clears_flat_references_from_users(): void
+    {
+        $role = Role::create(['name' => 'admin']);
+
+        $user = TestUser::create(['name' => 'Victor']);
+        $user->role_ids = [(string) $role->getKey()]; // legacy flat form
+        $user->save();
+
+        $role->delete();
+
+        $this->assertSame([], $user->fresh()->role_ids ?? []);
+    }
+
+    public function test_deleting_a_permission_clears_flat_references_from_users(): void
+    {
+        $permission = Permission::create(['name' => 'edit-posts']);
+
+        $user = TestUser::create(['name' => 'Victor']);
+        $user->permission_ids = [(string) $permission->getKey()]; // legacy flat form
+        $user->save();
+
+        $permission->delete();
+
+        $this->assertSame([], $user->fresh()->permission_ids ?? []);
+    }
+
+    public function test_editing_a_role_permission_set_invalidates_cached_user_permissions(): void
+    {
+        $view = Permission::create(['name' => 'reports.view']);
+        $edit = Permission::create(['name' => 'reports.edit']);
+
+        $role = Role::create(['name' => 'manager']);
+        $role->permission_ids = [(string) $view->getKey()];
+        $role->save();
+
+        $user = TestUser::create(['name' => 'Victor']);
+        $user->assignRole('manager');
+
+        // Warm the cache: the user has view but not edit.
+        $this->assertTrue($user->fresh()->hasPermissionTo('reports.view'));
+        $this->assertFalse($user->fresh()->hasPermissionTo('reports.edit'));
+
+        // Admin edits the role's permission set directly (e.g. via the Filament panel).
+        $role->permission_ids = [(string) $view->getKey(), (string) $edit->getKey()];
+        $role->save();
+
+        // Must reflect immediately — stale cache would still report false.
+        $this->assertTrue($user->fresh()->hasPermissionTo('reports.edit'));
+    }
 }
