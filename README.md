@@ -45,6 +45,27 @@ $user->assignRole('editor');
 $user->hasPermissionTo('edit articles'); // true
 ```
 
+## Reading relations
+
+Forward and inverse relations are exposed as methods returning collections:
+
+```php
+// On the user (via the HasRoles / HasPermissions traits)
+$user->roles();          // Collection<Role>
+$user->permissions();    // Collection<Permission> direct grants
+
+// On a role
+$role->permissions();    // Collection<Permission>
+$role->users();          // users holding the role
+                         // (matches both flat ["id"] and structured role_ids)
+
+// On a permission
+$permission->roles();    // Collection<Role> that grant it
+```
+
+These return plain collections (not query builders) and are resolved on call,
+so reach for them in views and reports rather than in tight loops.
+
 ## Status
 
 v1.0 — ready for production. Covers single + multi-tenant Laravel apps,

@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-06-08
+
+### Fixed
+- Removed the property accessors added in 1.6.0 (`$role->permissions`,
+  `$user->roles`, `$permission->roles`, …). Under `mongodb/laravel-mongodb` a
+  same-named method is resolved as a relation, so accessing them as properties
+  threw `LogicException: … must return a relationship instance`. Use the
+  methods instead: `$role->permissions()`, `$user->roles()`, `$role->users()`,
+  `$permission->roles()`.
+
+## [1.6.0] - 2026-06-08
+
+### Added
+- Inverse relation methods for Spatie/Maklad parity:
+  - `Role::users()` — users who hold the role. Matches both the flat (`["id"]`)
+    and structured (`[{role_id: "id"}]`) `role_ids` forms.
+  - `Permission::roles()` — roles that grant the permission.
+
+  (1.6.0 also shipped property-accessor versions of these; they did not work
+  under mongodb and were removed in 1.6.1 — use the methods.)
+
 ## [1.5.0] - 2026-06-08
 
 ### Changed
@@ -170,7 +191,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teams, strict isolation, wildcards, middlewares, Blade, Gate and
   commands.
 
-[Unreleased]: https://github.com/webrek/laravel-mongo-permission/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/webrek/laravel-mongo-permission/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/webrek/laravel-mongo-permission/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.0.0...v1.1.0

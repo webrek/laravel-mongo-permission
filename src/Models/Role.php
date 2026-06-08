@@ -136,18 +136,6 @@ class Role extends Model implements RoleContract
             ->get();
     }
 
-    /** Acceso por propiedad: $role->users (paridad Spatie/Maklad). */
-    public function getUsersAttribute(): Collection
-    {
-        return $this->users();
-    }
-
-    /** Acceso por propiedad: $role->permissions (paridad Spatie/Maklad). */
-    public function getPermissionsAttribute(): Collection
-    {
-        return $this->permissions();
-    }
-
     public function givePermissionTo(...$permissions): self
     {
         $ids = $this->resolvePermissionIds($this->flatten($permissions));
