@@ -23,6 +23,12 @@ trait HasRoles
         return $roleClass::query()->whereIn('_id', $ids)->get();
     }
 
+    /** Acceso por propiedad: $user->roles (paridad Spatie/Maklad). */
+    public function getRolesAttribute(): Collection
+    {
+        return $this->roles();
+    }
+
     public function assignRole(...$roles): self
     {
         return $this->attachRoles($this->flattenInput($roles), null);

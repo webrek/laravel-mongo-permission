@@ -20,6 +20,12 @@ trait HasPermissions
         return $permClass::query()->whereIn('_id', $ids)->get();
     }
 
+    /** Acceso por propiedad: $user->permissions (paridad Spatie/Maklad). */
+    public function getPermissionsAttribute(): \Illuminate\Support\Collection
+    {
+        return $this->permissions();
+    }
+
     public function givePermissionTo(...$permissions): self
     {
         return $this->attachPermissions($this->flattenInput($permissions), null);

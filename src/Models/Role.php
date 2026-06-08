@@ -117,6 +117,37 @@ class Role extends Model implements RoleContract
         return $permClass::query()->whereIn('_id', $this->permission_ids ?? [])->get();
     }
 
+    /**
+     * Usuarios que tienen este rol. Soporta role_ids plano (["id"]) y
+     * estructurado ([{role_id: "id"}]) para compatibilidad con datos legacy.
+     */
+    public function users(): Collection
+    {
+        $userClass = config('auth.providers.users.model');
+        if (! $userClass) {
+            return collect();
+        }
+        $id = (string) $this->getKey();
+        return $userClass::query()
+            ->where(function ($q) use ($id): void {
+                $q->where('role_ids', $id)
+                  ->orWhere('role_ids.role_id', $id);
+            })
+            ->get();
+    }
+
+    /** Acceso por propiedad: $role->users (paridad Spatie/Maklad). */
+    public function getUsersAttribute(): Collection
+    {
+        return $this->users();
+    }
+
+    /** Acceso por propiedad: $role->permissions (paridad Spatie/Maklad). */
+    public function getPermissionsAttribute(): Collection
+    {
+        return $this->permissions();
+    }
+
     public function givePermissionTo(...$permissions): self
     {
         $ids = $this->resolvePermissionIds($this->flatten($permissions));

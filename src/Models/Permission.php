@@ -116,4 +116,19 @@ class Permission extends Model implements PermissionContract
     {
         return $this->guard_name;
     }
+
+    /**
+     * Roles que tienen este permiso (roles.permission_ids es un array plano de ids).
+     */
+    public function roles(): \Illuminate\Support\Collection
+    {
+        $roleClass = config('permission.models.role');
+        return $roleClass::query()->where('permission_ids', (string) $this->getKey())->get();
+    }
+
+    /** Acceso por propiedad: $permission->roles (paridad Spatie/Maklad). */
+    public function getRolesAttribute(): \Illuminate\Support\Collection
+    {
+        return $this->roles();
+    }
 }
