@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-06-16
+
+### Added
+- Laravel 13 support. The package now installs on Laravel 12 and 13 (PHP 8.2+).
+
+### Fixed
+- Migrated the `WildcardPermission` data-provider test to the `#[DataProvider]`
+  attribute. PHPUnit 12 (pulled in on Laravel 13) no longer supports the
+  `@dataProvider` doc-comment annotation.
+
 ## [1.6.1] - 2026-06-08
 
 ### Fixed
@@ -191,7 +201,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teams, strict isolation, wildcards, middlewares, Blade, Gate and
   commands.
 
-[Unreleased]: https://github.com/webrek/laravel-mongo-permission/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/webrek/laravel-mongo-permission/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/webrek/laravel-mongo-permission/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/webrek/laravel-mongo-permission/compare/v1.4.0...v1.5.0

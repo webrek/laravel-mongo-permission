@@ -11,7 +11,7 @@ are designed around MongoDB.
 | Dependency | Versions |
 |---|---|
 | PHP | 8.2, 8.3, 8.4 |
-| Laravel | 12.x |
+| Laravel | 12.x / 13.x |
 | MongoDB server | 7.x |
 | `mongodb/laravel-mongodb` | `^5.0` |
 | PHP `mongodb` extension | required |
