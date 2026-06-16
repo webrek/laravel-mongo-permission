@@ -2,6 +2,7 @@
 
 namespace Webrek\MongoPermission\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use Webrek\MongoPermission\Exceptions\WildcardPermissionInvalidArgument;
 use Webrek\MongoPermission\Tests\TestCase;
 use Webrek\MongoPermission\WildcardPermission;
@@ -26,9 +27,7 @@ class WildcardPermissionTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider impliesMatrix
-     */
+    #[DataProvider('impliesMatrix')]
     public function test_implies(string $owned, string $checked, bool $expected): void
     {
         $this->assertSame($expected, WildcardPermission::implies($owned, $checked));
