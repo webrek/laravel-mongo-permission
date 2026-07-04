@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a problem with the package
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Roles / permissions logic
+        - MongoDB backend / queries
+        - Middleware / gates / Blade directives
+        - Migrations / seeding
+        - Docs
+    validations:
+      required: true
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+    validations:
+      required: true
+  - type: input
+    id: php-laravel
+    attributes:
+      label: PHP and Laravel version
+    validations:
+      required: true
+  - type: input
+    id: mongo-version
+    attributes:
+      label: MongoDB version
+    validations:
+      required: false
