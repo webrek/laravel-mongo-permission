@@ -3,7 +3,9 @@
 namespace Webrek\MongoPermission\Commands;
 
 use Illuminate\Console\Command;
+use Webrek\MongoPermission\Support\Entry;
 use Webrek\MongoPermission\Support\Expiry;
+use Webrek\MongoPermission\WildcardPermission;
 
 class ListUsers extends Command
 {
@@ -23,16 +25,19 @@ class ListUsers extends Command
 
         if ($role === null && $permission === null) {
             $this->error('Pass a role argument or a --permission= option.');
+
             return self::FAILURE;
         }
         if ($role !== null && $permission !== null) {
             $this->error('Pass either a role argument or a --permission= option, not both.');
+
             return self::FAILURE;
         }
 
         $userClass = $this->option('user-model') ?: config('auth.providers.users.model');
         if (! $userClass || ! class_exists($userClass)) {
             $this->error('Could not resolve a user model. Pass --user-model= or set auth.providers.users.model.');
+
             return self::FAILURE;
         }
 
@@ -50,124 +55,105 @@ class ListUsers extends Command
 
     protected function listByRole(string $userClass, string $roleName, string $guard, ?string $teamFilter, bool $teamFilterActive): int
     {
-        $roleClass = config('permission.models.role');
-        $role = $roleClass::query()
-            ->where('name', $roleName)
-            ->where('guard_name', $guard)
-            ->first();
-
-        if ($role === null) {
+        $class = config('permission.models.role');
+        $query = $class::query()->where('name', $roleName)->where('guard_name', $guard);
+        if ($teamFilterActive) {
+            $query->where(fn ($q) => $q->where('team_id', $teamFilter)->orWhereNull('team_id'));
+        }
+        $roles = $query->get();
+        if ($roles->isEmpty()) {
             $this->error(sprintf('Role "%s" not found for guard "%s".', $roleName, $guard));
+
             return self::FAILURE;
         }
-
-        $roleId = (string) $role->getKey();
+        $ids = $roles->map(fn ($r) => (string) $r->getKey())->all();
         $rows = [];
-
-        foreach ($userClass::query()->cursor() as $user) {
+        foreach ($this->candidates($userClass, $ids, []) as $user) {
             foreach ($user->role_ids ?? [] as $entry) {
-                $entry = (array) $entry;
-                if ((string) ($entry['role_id'] ?? '') !== $roleId) {
+                $n = Entry::normalize($entry, 'role_id');
+                if (! in_array($n['id'], $ids, true) || ! $this->matches($n, $teamFilter, $teamFilterActive)) {
                     continue;
                 }
-                if (Expiry::isExpired($entry)) {
-                    continue;
-                }
-                if ($teamFilterActive && ($entry['team_id'] ?? null) !== $teamFilter) {
-                    continue;
-                }
-                $rows[] = [
-                    (string) $user->getKey(),
-                    $user->name ?? '',
-                    $user->email ?? '',
-                    $entry['team_id'] ?? '(global)',
-                ];
+                $rows[(string) $user->getKey()] = sprintf('  %s  %s  <%s>  team:%s', $user->getKey(), $user->name ?? '', $user->email ?? '', $n['team_id'] ?? '(global)');
             }
         }
-
         $this->info(sprintf('%d user(s) with role "%s" (guard: %s).', count($rows), $roleName, $guard));
         foreach ($rows as $row) {
-            $this->line(sprintf('  %s  %s  <%s>  team:%s', $row[0], $row[1], $row[2], $row[3]));
+            $this->line($row);
         }
+
         return self::SUCCESS;
     }
 
     protected function listByPermission(string $userClass, string $permissionName, string $guard, ?string $teamFilter, bool $teamFilterActive): int
     {
-        $permClass = config('permission.models.permission');
+        $class = config('permission.models.permission');
         $roleClass = config('permission.models.role');
-
-        $perm = $permClass::query()
-            ->where('name', $permissionName)
-            ->where('guard_name', $guard)
-            ->first();
-
-        if ($perm === null) {
+        $permissions = $class::query()->where('guard_name', $guard)->get();
+        $permissions = $permissions->filter(fn ($p) => $p->name === $permissionName || (config('permission.enable_wildcard_permission') && WildcardPermission::implies($p->name, $permissionName)));
+        if ($teamFilterActive) {
+            $permissions = $permissions->filter(fn ($p) => $p->team_id === null || $p->team_id === $teamFilter);
+        }
+        if ($permissions->isEmpty()) {
             $this->error(sprintf('Permission "%s" not found for guard "%s".', $permissionName, $guard));
+
             return self::FAILURE;
         }
-
-        $permId = (string) $perm->getKey();
-
-        // Find roles that carry this permission.
-        $rolesWithPerm = $roleClass::query()
-            ->where('permission_ids', $permId)
-            ->where('guard_name', $guard)
-            ->get();
-        $roleNamesById = $rolesWithPerm->keyBy(fn ($r) => (string) $r->getKey())->map(fn ($r) => $r->name)->all();
-
-        $rows = [];
-
-        foreach ($userClass::query()->cursor() as $user) {
-            $reasons = [];
-
-            // Direct grant.
-            foreach ($user->permission_ids ?? [] as $entry) {
-                $entry = (array) $entry;
-                if ((string) ($entry['permission_id'] ?? '') !== $permId) {
-                    continue;
-                }
-                if (Expiry::isExpired($entry)) {
-                    continue;
-                }
-                if ($teamFilterActive && ($entry['team_id'] ?? null) !== $teamFilter) {
-                    continue;
-                }
-                $reasons[] = 'direct';
-            }
-
-            // Grant via role.
-            foreach ($user->role_ids ?? [] as $entry) {
-                $entry = (array) $entry;
-                $rid = (string) ($entry['role_id'] ?? '');
-                if (! isset($roleNamesById[$rid])) {
-                    continue;
-                }
-                if (Expiry::isExpired($entry)) {
-                    continue;
-                }
-                if ($teamFilterActive && ($entry['team_id'] ?? null) !== $teamFilter) {
-                    continue;
-                }
-                $reasons[] = 'via role ' . $roleNamesById[$rid];
-            }
-
-            if (empty($reasons)) {
-                continue;
-            }
-
-            $rows[] = [
-                (string) $user->getKey(),
-                $user->name ?? '',
-                $user->email ?? '',
-                implode(', ', $reasons),
-            ];
+        $ids = $permissions->map(fn ($p) => (string) $p->getKey())->all();
+        $memo = [];
+        $roles = $roleClass::query()->where('guard_name', $guard)->get();
+        foreach ($roles as $role) {
+            $memo[(string) $role->getKey()] = $role;
         }
-
+        $roles = $roles->filter(function ($r) use ($ids, &$memo, $teamFilter, $teamFilterActive) {
+            return (! $teamFilterActive || $r->team_id === null || $r->team_id === $teamFilter) && array_intersect($r->getAllPermissionIds($memo), $ids);
+        })->keyBy(fn ($r) => (string) $r->getKey());
+        $rows = [];
+        foreach ($this->candidates($userClass, $roles->keys()->all(), $ids) as $user) {
+            $reasons = [];
+            foreach ($user->permission_ids ?? [] as $entry) {
+                $n = Entry::normalize($entry, 'permission_id');
+                if (in_array($n['id'], $ids, true) && $this->matches($n, $teamFilter, $teamFilterActive)) {
+                    $reasons[] = 'direct';
+                }
+            }
+            foreach ($user->role_ids ?? [] as $entry) {
+                $n = Entry::normalize($entry, 'role_id');
+                if (isset($roles[$n['id']]) && $this->matches($n, $teamFilter, $teamFilterActive)) {
+                    $reasons[] = 'via role '.$roles[$n['id']]->name;
+                }
+            }
+            if ($reasons) {
+                $rows[] = sprintf('  %s  %s  <%s>  source: %s', $user->getKey(), $user->name ?? '', $user->email ?? '', implode(', ', array_unique($reasons)));
+            }
+        }
         $this->info(sprintf('%d user(s) with permission "%s" (guard: %s).', count($rows), $permissionName, $guard));
         foreach ($rows as $row) {
-            $this->line(sprintf('  %s  %s  <%s>  source: %s', $row[0], $row[1], $row[2], $row[3]));
+            $this->line($row);
         }
+
         return self::SUCCESS;
+    }
+
+    protected function matches(array $entry, ?string $team, bool $active): bool
+    {
+        return ! Expiry::isExpired($entry) && (! $active || $entry['team_id'] === $team
+            || (! config('permission.strict_team_isolation') && $entry['team_id'] === null));
+    }
+
+    protected function candidates(string $userClass, array $roles, array $permissions): iterable
+    {
+        if (! $roles && ! $permissions) {
+            return [];
+        }
+
+        return $userClass::query()->where(function ($q) use ($roles, $permissions) {
+            if ($roles) {
+                $q->whereIn('role_ids', $roles)->orWhereIn('role_ids.role_id', $roles);
+            }
+            if ($permissions) {
+                $q->orWhereIn('permission_ids', $permissions)->orWhereIn('permission_ids.permission_id', $permissions);
+            }
+        })->cursor();
     }
 }

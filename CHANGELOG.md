@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Scope role/permission lookup, grant mutations and permission lists by team and guard; prefer team catalogs over global definitions. Reject cross-team and cross-guard hierarchy edges.
+- Invalidate revocations across all affected teams and live registrars. Serialize cache generation changes, respect the configured store and TTL, and preserve unrelated application cache on reset.
+- Use compare-and-swap for user grants and role permission arrays so concurrent additions do not overwrite each other. Synchronization preserves assignments in other teams and guards.
+- Renew expired grants on reassignment and update explicitly supplied expiry dates.
+- Validate hierarchy depth for affected descendants and serialize hierarchy API edits.
+- Honor `throw_on_missing_permission=false`; include inherited, wildcard and legacy grants in `permission:list-users`.
+
+### Performance
+- Cache catalog lookups, batch grant event model reads, and reuse shared ancestor reads during permission evaluation.
+- Create reverse user-assignment indexes and prefilter candidates for `permission:list-users`.
+
+### Compatibility
+- Cache entries expire after 86400 seconds by default (also the fallback for a published null TTL) so retired generations are bounded. Grant expiration still takes effect immediately within a warm entry.
+- Configure a shared Laravel cache store supporting atomic locks for multiple workers (for example file or Redis). Array cache is suitable for isolated tests only.
+- Grant mutations update only their assignment arrays and emit package events; save unrelated dirty user attributes separately.
+- Assigning a model from another team throws `TeamDoesNotMatch`. Global catalog definitions remain reusable, but strict isolation applies to the team of each grant.
+
+
 ## [1.7.0] - 2026-06-16
 
 ### Added

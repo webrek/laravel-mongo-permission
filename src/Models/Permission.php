@@ -2,14 +2,20 @@
 
 namespace Webrek\MongoPermission\Models;
 
+use Illuminate\Support\Collection;
 use MongoDB\Laravel\Eloquent\Model;
 use Webrek\MongoPermission\Contracts\Permission as PermissionContract;
+use Webrek\MongoPermission\Events\PermissionCreated;
+use Webrek\MongoPermission\Events\PermissionDeleted;
 use Webrek\MongoPermission\Exceptions\PermissionAlreadyExists;
 use Webrek\MongoPermission\Exceptions\PermissionDoesNotExist;
+use Webrek\MongoPermission\PermissionRegistrar;
+use Webrek\MongoPermission\Support\AtomicArray;
 
 class Permission extends Model implements PermissionContract
 {
     protected $connection = 'mongodb';
+
     protected $guarded = [];
 
     public function getTable(): string
@@ -24,7 +30,7 @@ class Permission extends Model implements PermissionContract
 
             if (! array_key_exists('team_id', $perm->getAttributes()) || $perm->team_id === null) {
                 if (config('permission.teams', false)) {
-                    $perm->team_id = app(\Webrek\MongoPermission\PermissionRegistrar::class)->getTeamId();
+                    $perm->team_id = app(PermissionRegistrar::class)->getTeamId();
                 }
             }
 
@@ -40,11 +46,11 @@ class Permission extends Model implements PermissionContract
         });
 
         static::created(function (self $perm): void {
-            event(new \Webrek\MongoPermission\Events\PermissionCreated($perm));
+            event(new PermissionCreated($perm));
         });
 
         static::saved(function (): void {
-            app(\Webrek\MongoPermission\PermissionRegistrar::class)->bumpCacheVersion();
+            app(PermissionRegistrar::class)->bumpCacheVersion();
         });
 
         static::deleted(function (self $perm): void {
@@ -66,12 +72,11 @@ class Permission extends Model implements PermissionContract
             // Pull from roles.permission_ids
             $roleClass = config('permission.models.role');
             $roleClass::query()->where('permission_ids', $id)->each(function ($role) use ($id): void {
-                $role->permission_ids = array_values(array_diff($role->permission_ids ?? [], [$id]));
-                $role->saveQuietly();
+                AtomicArray::mutate($role, 'permission_ids', fn ($ids) => array_values(array_diff($ids, [$id])));
             });
 
-            app(\Webrek\MongoPermission\PermissionRegistrar::class)->bumpCacheVersion();
-            event(new \Webrek\MongoPermission\Events\PermissionDeleted($perm));
+            app(PermissionRegistrar::class)->bumpCacheVersion();
+            event(new PermissionDeleted($perm));
         });
     }
 
@@ -79,32 +84,26 @@ class Permission extends Model implements PermissionContract
     {
         $guard = $guardName ?? config('permission.default_guard');
 
-        $perm = static::query()
-            ->where('name', $name)
-            ->where('guard_name', $guard)
-            ->first();
+        $perm = app(PermissionRegistrar::class)->catalog(static::class, $guard)->firstWhere('name', $name);
 
         if ($perm === null) {
             throw PermissionDoesNotExist::named($name, $guard);
         }
 
-        return $perm;
+        return clone $perm;
     }
 
     public static function findById(string $id, ?string $guardName = null): self
     {
         $guard = $guardName ?? config('permission.default_guard');
 
-        $perm = static::query()
-            ->where('_id', $id)
-            ->where('guard_name', $guard)
-            ->first();
+        $perm = app(PermissionRegistrar::class)->catalog(static::class, $guard)->first(fn ($m) => (string) $m->getKey() === $id);
 
         if ($perm === null) {
             throw PermissionDoesNotExist::withId($id, $guard);
         }
 
-        return $perm;
+        return clone $perm;
     }
 
     public function getName(): string
@@ -120,9 +119,10 @@ class Permission extends Model implements PermissionContract
     /**
      * Roles que tienen este permiso (roles.permission_ids es un array plano de ids).
      */
-    public function roles(): \Illuminate\Support\Collection
+    public function roles(): Collection
     {
         $roleClass = config('permission.models.role');
+
         return $roleClass::query()->where('permission_ids', (string) $this->getKey())->get();
     }
 }

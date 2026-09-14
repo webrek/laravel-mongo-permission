@@ -106,8 +106,8 @@ transfers. The internals do not.
 
 ## Caching
 
-`hasPermissionTo` and `hasRole` consult an in-memory + Laravel Cache
-layer keyed by `(user_id, team_id)`. Mutations through `assignRole`,
+`hasPermissionTo` and `hasRole` consult Laravel Cache entries scoped by user,
+guard, team and isolation configuration, with catalog and user generations. Mutations through `assignRole`,
 `removeRole`, `givePermissionTo`, `revokePermissionTo`, and
 `syncRoles`/`syncPermissions` invalidate the affected keys via package
 events.
@@ -125,8 +125,18 @@ Changing a role or permission — including a raw model save (e.g. from an
 admin panel) or a deletion — invalidates every cached slug array at once by
 bumping a cache *generation* that is folded into the cache keys. Per-user
 changes (`assignRole`, `removeRole`, `givePermissionTo`, …) still invalidate
-only the affected user via events. So edits made anywhere take effect on the
-next request without a manual reset.
+only the affected user, across all team contexts. Generations are read on each
+check so a live registrar observes changes made by another process. So edits made anywhere take effect on the
+next check without a manual reset. `permission:cache-reset` invalidates only the
+package namespace; it does not flush the application's cache.
+
+`cache.store` selects the Laravel store. Use a shared store with atomic lock
+support (such as file or Redis) when multiple workers serve the app. Array
+cache is intended for isolated tests. Cache entries have a default TTL of
+86400 seconds; a published `null` also uses this bound. This expires retired
+cache generations; grant expiration is checked independently on every read.
+Direct writes through query builders bypass model events, so use the package
+mutation APIs or invalidate the package after bulk catalog writes.
 
 ## Multi-guard
 
@@ -154,7 +164,11 @@ Set `permission.teams = true` (default) and either call
     ?? request()->header('X-Team-Id'),
 ```
 
-Assignments made while a team is active are scoped to that team. Reads
+Catalog lookups prefer the active team's definition, with a global catalog
+fallback. Passing an explicit model belonging to another team throws
+`TeamDoesNotMatch`. Assignments made while a team is active are scoped to that team.
+Assign, remove and sync operations preserve assignments in other teams and
+guards. A global definition may be granted separately in multiple teams. Reads
 honor the active team. Setting `permission.strict_team_isolation = true`
 disables the "team_id = null is global" fallback.
 
@@ -175,6 +189,10 @@ $user->hasPermissionTo('publish posts');  // true for seven days
 // After the expiry passes:
 $user->hasRole('admin');                  // false
 ```
+
+Reassigning an expired grant renews it. Passing an explicit expiry updates that
+grant's expiry; repeating a grant without an expiry leaves an existing live
+grant unchanged. These updates preserve assignments in other teams.
 
 Expired subdocs are not removed automatically. Run the prune
 command on a schedule (or ad-hoc) to garbage-collect them and free
@@ -369,7 +387,7 @@ Published to `config/permission.php`:
 | `handle_unauthorized` | `true` | Let middleware throw 403 `UnauthorizedException` |
 | `cache.store` | `'default'` | Laravel Cache store for slug/catalog keys |
 | `cache.key` | `'mongo-permission'` | Namespace prefix for all package cache keys |
-| `cache.expiration_time` | `null` | `null` = forever (trust event-driven invalidation) |
+| `cache.expiration_time` | `86400` | Entry TTL in seconds or a Laravel-compatible interval; `null` falls back to 86400 |
 
 ## Testing locally
 

@@ -6,12 +6,23 @@ use Illuminate\Support\Collection;
 use MongoDB\Laravel\Eloquent\Model;
 use Webrek\MongoPermission\Contracts\Permission as PermissionContract;
 use Webrek\MongoPermission\Contracts\Role as RoleContract;
+use Webrek\MongoPermission\Events\PermissionAttached;
+use Webrek\MongoPermission\Events\PermissionDetached;
+use Webrek\MongoPermission\Events\RoleCreated;
+use Webrek\MongoPermission\Events\RoleDeleted;
+use Webrek\MongoPermission\Events\RoleParentChanged;
 use Webrek\MongoPermission\Exceptions\RoleAlreadyExists;
 use Webrek\MongoPermission\Exceptions\RoleDoesNotExist;
+use Webrek\MongoPermission\Exceptions\RoleHierarchyCycle;
+use Webrek\MongoPermission\Exceptions\RoleHierarchyTooDeep;
+use Webrek\MongoPermission\PermissionRegistrar;
+use Webrek\MongoPermission\Support\AtomicArray;
+use Webrek\MongoPermission\Support\TeamScope;
 
 class Role extends Model implements RoleContract
 {
     protected $connection = 'mongodb';
+
     protected $guarded = [];
 
     public function getTable(): string
@@ -27,7 +38,7 @@ class Role extends Model implements RoleContract
 
             if (! array_key_exists('team_id', $role->getAttributes()) || $role->team_id === null) {
                 if (config('permission.teams', false)) {
-                    $role->team_id = app(\Webrek\MongoPermission\PermissionRegistrar::class)->getTeamId();
+                    $role->team_id = app(PermissionRegistrar::class)->getTeamId();
                 }
             }
 
@@ -43,11 +54,11 @@ class Role extends Model implements RoleContract
         });
 
         static::created(function (self $role): void {
-            event(new \Webrek\MongoPermission\Events\RoleCreated($role));
+            event(new RoleCreated($role));
         });
 
         static::saved(function (): void {
-            app(\Webrek\MongoPermission\PermissionRegistrar::class)->bumpCacheVersion();
+            app(PermissionRegistrar::class)->bumpCacheVersion();
         });
 
         static::deleted(function (self $role): void {
@@ -64,8 +75,8 @@ class Role extends Model implements RoleContract
                 $collection->updateMany([], ['$pull' => ['role_ids' => $id]]);
             }
 
-            app(\Webrek\MongoPermission\PermissionRegistrar::class)->bumpCacheVersion();
-            event(new \Webrek\MongoPermission\Events\RoleDeleted($role));
+            app(PermissionRegistrar::class)->bumpCacheVersion();
+            event(new RoleDeleted($role));
         });
     }
 
@@ -73,32 +84,26 @@ class Role extends Model implements RoleContract
     {
         $guard = $guardName ?? config('permission.default_guard');
 
-        $role = static::query()
-            ->where('name', $name)
-            ->where('guard_name', $guard)
-            ->first();
+        $role = app(PermissionRegistrar::class)->catalog(static::class, $guard)->firstWhere('name', $name);
 
         if ($role === null) {
             throw RoleDoesNotExist::named($name, $guard);
         }
 
-        return $role;
+        return clone $role;
     }
 
     public static function findById(string $id, ?string $guardName = null): self
     {
         $guard = $guardName ?? config('permission.default_guard');
 
-        $role = static::query()
-            ->where('_id', $id)
-            ->where('guard_name', $guard)
-            ->first();
+        $role = app(PermissionRegistrar::class)->catalog(static::class, $guard)->first(fn ($m) => (string) $m->getKey() === $id);
 
         if ($role === null) {
             throw RoleDoesNotExist::withId($id, $guard);
         }
 
-        return $role;
+        return clone $role;
     }
 
     public function getName(): string
@@ -114,6 +119,7 @@ class Role extends Model implements RoleContract
     public function permissions(): Collection
     {
         $permClass = config('permission.models.permission');
+
         return $permClass::query()->whereIn('_id', $this->permission_ids ?? [])->get();
     }
 
@@ -128,74 +134,52 @@ class Role extends Model implements RoleContract
             return collect();
         }
         $id = (string) $this->getKey();
+
         return $userClass::query()
             ->where(function ($q) use ($id): void {
                 $q->where('role_ids', $id)
-                  ->orWhere('role_ids.role_id', $id);
+                    ->orWhere('role_ids.role_id', $id);
             })
             ->get();
     }
 
     public function givePermissionTo(...$permissions): self
     {
-        $ids = $this->resolvePermissionIds($this->flatten($permissions));
-        $current = $this->permission_ids ?? [];
-        $toAdd = array_diff($ids, $current);
-
-        if (empty($toAdd)) {
-            return $this;
-        }
-
-        $this->permission_ids = array_values(array_unique(array_merge($current, $toAdd)));
-        $this->save();
-
-        $permClass = config('permission.models.permission');
-        foreach ($toAdd as $id) {
-            $perm = $permClass::query()->where('_id', $id)->first();
-            event(new \Webrek\MongoPermission\Events\PermissionAttached(
-                $this,
-                $perm,
-                $this->team_id,
-                $this->guard_name,
-            ));
-        }
-
-        return $this;
+        return $this->changePermissions($permissions, 'add');
     }
 
     public function revokePermissionTo(...$permissions): self
     {
-        $ids = $this->resolvePermissionIds($this->flatten($permissions));
-        $current = $this->permission_ids ?? [];
-        $remaining = array_values(array_diff($current, $ids));
-        $removed = array_diff($current, $remaining);
-
-        $this->permission_ids = $remaining;
-        $this->save();
-
-        if (! empty($removed)) {
-            $permClass = config('permission.models.permission');
-            foreach ($removed as $id) {
-                $perm = $permClass::query()->where('_id', $id)->first();
-                if ($perm) {
-                    event(new \Webrek\MongoPermission\Events\PermissionDetached(
-                        $this,
-                        $perm,
-                        $this->team_id,
-                        $this->guard_name,
-                    ));
-                }
-            }
-        }
-
-        return $this;
+        return $this->changePermissions($permissions, 'remove');
     }
 
     public function syncPermissions(...$permissions): self
     {
+        return $this->changePermissions($permissions, 'sync');
+    }
+
+    protected function changePermissions(array $permissions, string $operation): self
+    {
         $ids = $this->resolvePermissionIds($this->flatten($permissions));
-        $this->permission_ids = array_values(array_unique($ids));
-        $this->save();
+        [$before,$after] = AtomicArray::mutate($this, 'permission_ids', function ($current) use ($ids, $operation) {
+            return match ($operation) {
+                'add' => array_values(array_unique(array_merge($current, $ids))),
+                'remove' => array_values(array_diff($current, $ids)),
+                default => $ids,
+            };
+        });
+        if ($before == $after) {
+            return $this;
+        }
+        app(PermissionRegistrar::class)->bumpCacheVersion();
+        $class = config('permission.models.permission');
+        $changed = $class::query()->whereIn('_id', array_merge(array_diff($before, $after), array_diff($after, $before)))->get();
+        foreach ($changed as $permission) {
+            $event = in_array((string) $permission->getKey(), $after, true)
+                ? PermissionAttached::class : PermissionDetached::class;
+            event(new $event($this, $permission, $this->team_id, $this->guard_name));
+        }
+
         return $this;
     }
 
@@ -210,43 +194,58 @@ class Role extends Model implements RoleContract
 
     public function inheritsFrom(RoleContract $parent): self
     {
-        if ((string) $parent->getKey() === (string) $this->getKey()) {
-            throw \Webrek\MongoPermission\Exceptions\RoleHierarchyCycle::detected($this->name, $parent->getName());
-        }
+        return app(PermissionRegistrar::class)->withLock('hierarchy:'.static::class.':'.$this->guard_name,
+            fn () => $this->attachParent($parent));
+    }
 
-        // Cycle detection: walk up from $parent and ensure $this is not an ancestor.
+    protected function attachParent(RoleContract $parent): self
+    {
+        TeamScope::validate($parent, $this->guard_name, $this->team_id);
+        $selfId = (string) $this->getKey();
+        $parentId = (string) $parent->getKey();
+        // Evaluate the proposed graph, including descendants whose depth grows.
+        $graph = static::query()->where('guard_name', $this->guard_name)->get()->keyBy(fn ($r) => (string) $r->getKey());
+        $edges = [];
+        foreach ($graph as $id => $role) {
+            $edges[$id] = array_map('strval', $role->parent_role_ids ?? []);
+        }
+        $edges[$selfId] = array_values(array_unique(array_merge($edges[$selfId] ?? [], [$parentId])));
+        $affected = [$selfId => true];
+        do {
+            $changed = false;
+            foreach ($edges as $id => $parents) {
+                if (! isset($affected[$id]) && array_intersect($parents, array_keys($affected))) {
+                    $affected[$id] = true;
+                    $changed = true;
+                }
+            }
+        } while ($changed);
+        $depths = [];
+        $visiting = [];
+        $walk = function (string $id) use (&$walk, &$visiting, &$depths, $edges, $parent): int {
+            if (isset($visiting[$id])) {
+                throw RoleHierarchyCycle::detected($this->name, $parent->getName());
+            }
+            if (isset($depths[$id])) {
+                return $depths[$id];
+            }
+            $visiting[$id] = true;
+            $depth = 0;
+            foreach ($edges[$id] ?? [] as $pid) {
+                $depth = max($depth, 1 + $walk($pid));
+            }
+            unset($visiting[$id]);
+
+            return $depths[$id] = $depth;
+        };
         $maxDepth = (int) config('permission.role_hierarchy_max_depth', 5);
-        $visited = [];
-        $stack = [(string) $parent->getKey()];
-        // depth = 1 represents the hop from this role to its direct parent.
-        $depth = 1;
-        while (! empty($stack)) {
-            if ($depth > $maxDepth) {
-                throw \Webrek\MongoPermission\Exceptions\RoleHierarchyTooDeep::exceeded($this->name, $maxDepth);
+        foreach (array_keys($affected) as $id) {
+            if ($walk((string) $id) > $maxDepth) {
+                throw RoleHierarchyTooDeep::exceeded($this->name, $maxDepth);
             }
-            $next = [];
-            foreach ($stack as $rid) {
-                if ($rid === (string) $this->getKey()) {
-                    throw \Webrek\MongoPermission\Exceptions\RoleHierarchyCycle::detected($this->name, $parent->getName());
-                }
-                if (isset($visited[$rid])) {
-                    continue;
-                }
-                $visited[$rid] = true;
-
-                $r = static::query()->where('_id', $rid)->first();
-                if (! $r) {
-                    continue;
-                }
-                foreach ($r->parent_role_ids ?? [] as $pid) {
-                    $next[] = (string) $pid;
-                }
-            }
-            $stack = $next;
-            $depth++;
         }
 
-        $current = array_map('strval', $this->parent_role_ids ?? []);
+        $current = array_map('strval', $this->fresh()->parent_role_ids ?? []);
         $parentId = (string) $parent->getKey();
         if (in_array($parentId, $current, strict: true)) {
             return $this;
@@ -255,13 +254,20 @@ class Role extends Model implements RoleContract
         $this->parent_role_ids = $current;
         $this->save();
 
-        event(new \Webrek\MongoPermission\Events\RoleParentChanged($this, $parent, 'attached'));
+        event(new RoleParentChanged($this, $parent, 'attached'));
+
         return $this;
     }
 
     public function stopsInheritingFrom(RoleContract $parent): self
     {
-        $current = array_map('strval', $this->parent_role_ids ?? []);
+        return app(PermissionRegistrar::class)->withLock('hierarchy:'.static::class.':'.$this->guard_name,
+            fn () => $this->detachParent($parent));
+    }
+
+    protected function detachParent(RoleContract $parent): self
+    {
+        $current = array_map('strval', $this->fresh()->parent_role_ids ?? []);
         $parentId = (string) $parent->getKey();
         if (! in_array($parentId, $current, strict: true)) {
             return $this;
@@ -269,51 +275,58 @@ class Role extends Model implements RoleContract
         $this->parent_role_ids = array_values(array_diff($current, [$parentId]));
         $this->save();
 
-        event(new \Webrek\MongoPermission\Events\RoleParentChanged($this, $parent, 'detached'));
+        event(new RoleParentChanged($this, $parent, 'detached'));
+
         return $this;
     }
 
-    public function getAncestors(): \Illuminate\Support\Collection
+    public function getAncestors(array &$memo = []): Collection
     {
         $maxDepth = (int) config('permission.role_hierarchy_max_depth', 5);
-        $visited = [];
+        $visited = [(string) $this->getKey() => true];
         $stack = array_map('strval', $this->parent_role_ids ?? []);
         $ancestors = [];
         $depth = 0;
-        while (! empty($stack) && $depth <= $maxDepth) {
+        while ($stack && $depth < $maxDepth) {
+            $missing = array_values(array_filter($stack, fn ($id) => ! array_key_exists($id, $memo)));
+            if ($missing) {
+                foreach ($missing as $id) {
+                    $memo[$id] = null;
+                }
+                foreach ($this->newQuery()->whereIn('_id', $missing)->getModels() as $role) {
+                    $memo[(string) $role->getKey()] = $role;
+                }
+            }
             $next = [];
-            $roles = static::query()->whereIn('_id', $stack)->get();
-            /** @var \Webrek\MongoPermission\Models\Role $r */
-            foreach ($roles as $r) {
-                $rid = (string) $r->getKey();
-                if (isset($visited[$rid])) {
+            foreach ($stack as $id) {
+                if (isset($visited[$id])) {
                     continue;
                 }
-                $visited[$rid] = true;
-                $ancestors[] = $r;
-                foreach ($r->parent_role_ids ?? [] as $pid) {
+                $visited[$id] = true;
+                $role = $memo[$id] ?? null;
+                if (! $role || $role->guard_name !== $this->guard_name || ! TeamScope::catalog($role, $this->team_id)) {
+                    continue;
+                }
+                $ancestors[] = $role;
+                foreach ($role->parent_role_ids ?? [] as $pid) {
                     $next[] = (string) $pid;
                 }
             }
-            $stack = $next;
+            $stack = array_values(array_unique($next));
             $depth++;
         }
+
         return collect($ancestors);
     }
 
-    /**
-     * Permission ids from this role plus every ancestor's role.
-     *
-     * @return array<int, string>
-     */
-    public function getAllPermissionIds(): array
+    /** @return array<int, string> */
+    public function getAllPermissionIds(array &$memo = []): array
     {
         $ids = array_map('strval', $this->permission_ids ?? []);
-        foreach ($this->getAncestors() as $ancestor) {
-            foreach ($ancestor->permission_ids ?? [] as $pid) {
-                $ids[] = (string) $pid;
-            }
+        foreach ($this->getAncestors($memo) as $ancestor) {
+            $ids = array_merge($ids, array_map('strval', $ancestor->permission_ids ?? []));
         }
+
         return array_values(array_unique($ids));
     }
 
@@ -327,6 +340,7 @@ class Role extends Model implements RoleContract
                 $flat[] = $item;
             }
         }
+
         return $flat;
     }
 
@@ -335,12 +349,11 @@ class Role extends Model implements RoleContract
         $permClass = config('permission.models.permission');
         $ids = [];
         foreach ($names as $entry) {
-            if ($entry instanceof PermissionContract) {
-                $ids[] = (string) $entry->getKey();
-                continue;
-            }
-            $ids[] = (string) $permClass::findByName($entry, $this->guard_name)->getKey();
+            $permission = $entry instanceof PermissionContract ? $entry : $permClass::findByName($entry, $this->guard_name);
+            TeamScope::validate($permission, $this->guard_name, $this->team_id);
+            $ids[] = (string) $permission->getKey();
         }
-        return $ids;
+
+        return array_values(array_unique($ids));
     }
 }
