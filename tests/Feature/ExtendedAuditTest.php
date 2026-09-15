@@ -200,6 +200,7 @@ class ExtendedAuditTest extends AuditTestCase
 
     public function test_permission_expiry_still_denies_with_warm_cache(): void
     {
+        $this->freezeTime();
         $user = $this->user('lector');
         $user->givePermissionToUntil('articles.publish', now()->addSecond());
         $this->assertTrue($user->hasPermissionTo('articles.publish'));
