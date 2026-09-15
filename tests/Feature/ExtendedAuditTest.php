@@ -169,7 +169,7 @@ class ExtendedAuditTest extends AuditTestCase
         $user->hasPermissionTo('articles.create');
         $key = $registrar->cacheKey((string) $user->id, null, 'permissions');
         $this->assertTrue(Cache::has($key));
-        $this->travel(2)->seconds();
+        $this->advanceCacheClock();
         $this->assertFalse(Cache::has($key));
     }
 

@@ -99,7 +99,7 @@ class GrantSafetyTest extends AuditTestCase
         $key = $reg->cacheKey((string) $user->id, null, 'permissions');
         Cache::put('unrelated', 'preserved', 60);
         Role::findByName('editor')->save();
-        $this->travel(2)->seconds();
+        $this->advanceCacheClock();
         $this->assertFalse(Cache::has($key));
         $this->assertSame('preserved', Cache::get('unrelated'));
     }

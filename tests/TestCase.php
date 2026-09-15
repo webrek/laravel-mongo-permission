@@ -35,7 +35,37 @@ abstract class TestCase extends Orchestra
             'options' => [],
         ]);
 
+        if (env('PERMISSION_TEST_CACHE') === 'redis') {
+            // TestCase flushes this DB: never point it at application Redis.
+            $app['config']->set('cache.default', 'redis');
+            $app['config']->set('cache.prefix', 'permission-package-test:');
+            $app['config']->set('database.redis', [
+                'client' => 'phpredis',
+                'options' => ['prefix' => 'permission-package-test:'],
+                'default' => [
+                    'host' => env('REDIS_HOST', '127.0.0.1'),
+                    'port' => (int) env('REDIS_PORT', 6379),
+                    'database' => 14,
+                ],
+                'cache' => [
+                    'host' => env('REDIS_HOST', '127.0.0.1'),
+                    'port' => (int) env('REDIS_PORT', 6379),
+                    'database' => 15,
+                ],
+            ]);
+        }
+
         $app['config']->set('auth.providers.users.model', \Webrek\MongoPermission\Tests\Models\TestUser::class);
+    }
+
+    protected function advanceCacheClock(): void
+    {
+        if (\Illuminate\Support\Facades\Cache::getStore() instanceof \Illuminate\Cache\RedisStore) {
+            // Redis TTL follows its server clock, not Carbon's test clock.
+            usleep(2100000);
+        } else {
+            $this->travel(2)->seconds();
+        }
     }
 
     protected function flushMongo(): void

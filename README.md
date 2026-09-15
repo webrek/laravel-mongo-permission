@@ -10,7 +10,7 @@ are designed around MongoDB.
 
 | Dependency | Versions |
 |---|---|
-| PHP | 8.2, 8.3, 8.4 |
+| PHP | 8.2–8.5 (Laravel 13 requires PHP 8.3+) |
 | Laravel | 12.x / 13.x |
 | MongoDB server | 7.x |
 | `mongodb/laravel-mongodb` | `^5.0` |
@@ -426,3 +426,18 @@ class FooTest extends TestCase
 ## License
 
 MIT
+
+## Redis integration tests
+
+CI runs the suite with array and Redis cache on each supported PHP/Laravel combination.
+The Redis run includes real subprocess grants, revocations and concurrent generation updates.
+For a local Redis run:
+
+```sh
+PERMISSION_TEST_CACHE=redis REDIS_HOST=127.0.0.1 REDIS_PORT=6380 \
+MONGO_DB_HOST=127.0.0.1 MONGO_DB_PORT=27018 vendor/bin/phpunit
+```
+
+Use a dedicated test Redis instance: the test harness flushes Redis DB 15 and uses DB 14 for locks.
+MongoDB test database names must end in `_test`. Do not run suites concurrently against the same databases.
+Mutation testing also runs serially because tests recreate MongoDB collections.
