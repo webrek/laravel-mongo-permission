@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Validation
+- Run array and Redis suites across PHP 8.2–8.5 and Laravel 12/13 (Laravel 13 requires PHP 8.3+), with dependency auditing on each matrix entry.
+- Exercise Redis grant/revoke propagation between independent processes and 160 concurrent cache generation increments.
+- Run mutation tests serially to prevent shared MongoDB test data interference; preserve mutation reports as CI artifacts.
+- Document upgrade behavior in [the v1.7.0 upgrade guide](docs/upgrading-from-1.7.md).
+
 ### Fixed
 - Scope role/permission lookup, grant mutations and permission lists by team and guard; prefer team catalogs over global definitions. Reject cross-team and cross-guard hierarchy edges.
 - Invalidate revocations across all affected teams and live registrars. Serialize cache generation changes, respect the configured store and TTL, and preserve unrelated application cache on reset.

@@ -1,6 +1,6 @@
 # Corrección de la auditoría de la aplicación consumidora
 
-Estado: **corregido localmente el 2026-09-14**, en la rama `fix/permission-audit`. La aplicación consumidora usa el paquete por enlace Composer y ya ejecuta estas correcciones. No se ha publicado una versión ni enviado los cambios a GitHub.
+Estado: **corregido localmente el 2026-09-14**, en la rama `fix/permission-audit`. La aplicación consumidora usa el paquete por enlace Composer y ya ejecuta estas correcciones. Los cambios están en la PR en borrador #1; no se ha publicado una versión. Ver `release-validation.md` para las validaciones posteriores.
 
 ## Validación final
 
@@ -35,7 +35,7 @@ Las lecturas iniciales rellenan la caché; las comprobaciones siguientes reutili
 - Los grants globales siguen siendo reutilizables como definiciones, pero las asignaciones pertenecen a un equipo. Operaciones explícitas con modelos de otro equipo lanzan `TeamDoesNotMatch`.
 - Las mutaciones de grants usan actualizaciones atómicas de sus arrays y emiten los eventos del paquete. No guardan otros atributos pendientes del modelo; usar `save()` por separado para cambios ajenos a permisos.
 - Las escrituras directas de query builder no ejecutan eventos de modelo. Usar las APIs del paquete o invalidar explícitamente después de una edición masiva del catálogo.
-- No se ejecutó toda la matriz de PHP/Laravel ni el análisis de mutación de CI. La prueba multiproceso usa file cache local; no se ha probado Redis distribuido ni Octane real.
+- La validación inicial no incluyó toda la matriz ni Redis. La matriz y Redis se ejecutaron posteriormente: ver `release-validation.md`. Octane y Redis Cluster/failover siguen sin validarse.
 
 ## Reproducir
 
