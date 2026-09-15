@@ -22,6 +22,7 @@ class RedisIntegrationTest extends AuditTestCase
     {
         return new Process([PHP_BINARY, __DIR__.'/../Support/redis-worker.php', $action], null, [
             'PERMISSION_TEST_CACHE' => 'redis',
+            'PERMISSION_MUTATION_ISOLATION' => false,
             'MONGO_DB_HOST' => (string) config('database.connections.mongodb.host'),
             'MONGO_DB_PORT' => (string) config('database.connections.mongodb.port'),
             'MONGO_DB_DATABASE' => (string) config('database.connections.mongodb.database'),

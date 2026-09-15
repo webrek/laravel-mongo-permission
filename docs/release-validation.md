@@ -28,6 +28,6 @@ A synthetic upgrade from actual v1.7.0 documents passed six checks: role permiss
 
 ## Remaining release gates
 
-Mutation testing runs separately with existing MSI 80% and covered MSI 90% thresholds. Its final result must be reviewed in the linked run before treating the release checks as complete. Tests run serially because their MongoDB setup drops shared collections; reports are uploaded as artifacts, including hidden files.
+Mutation testing runs separately with existing MSI 80% and covered MSI 90% thresholds. Its final result must be reviewed in the linked run before treating the release checks as complete. Mutation tests use isolated per-process MongoDB databases and four workers; reports are uploaded as artifacts, including hidden files.
 
 No Octane, Redis Cluster/failover or production-load validation is claimed. No stable version number has been selected; compatibility changes must be reviewed before tagging. Publishing the draft as a release remains a separate action.

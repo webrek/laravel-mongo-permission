@@ -440,4 +440,4 @@ MONGO_DB_HOST=127.0.0.1 MONGO_DB_PORT=27018 vendor/bin/phpunit
 
 Use a dedicated test Redis instance: the test harness flushes Redis DB 15 and uses DB 14 for locks.
 MongoDB test database names must end in `_test`. Do not run suites concurrently against the same databases.
-Mutation testing also runs serially because tests recreate MongoDB collections.
+Mutation testing uses four workers with separate MongoDB databases per PHP process; each test cleans up its worker database.

@@ -16,6 +16,20 @@ abstract class TestCase extends Orchestra
         \Illuminate\Support\Facades\Cache::flush();
     }
 
+    protected function tearDown(): void
+    {
+        try {
+            if (env('PERMISSION_MUTATION_ISOLATION') === '1' && $this->app) {
+                $db = $this->app['db']->connection('mongodb')->getMongoDB();
+                if (str_ends_with($db->getDatabaseName(), '_worker_'.getmypid().'_test')) {
+                    $db->drop();
+                }
+            }
+        } finally {
+            parent::tearDown();
+        }
+    }
+
     protected function getPackageProviders($app): array
     {
         return [
@@ -26,12 +40,19 @@ abstract class TestCase extends Orchestra
 
     protected function getEnvironmentSetUp($app): void
     {
+        $database = env('MONGO_DB_DATABASE', 'permission_test');
+        if (env('PERMISSION_MUTATION_ISOLATION') === '1') {
+            if (! str_ends_with($database, '_test')) {
+                throw new \RuntimeException('Mutation isolation requires a test database');
+            }
+            $database .= '_worker_'.getmypid().'_test';
+        }
         $app['config']->set('database.default', 'mongodb');
         $app['config']->set('database.connections.mongodb', [
             'driver' => 'mongodb',
             'host' => env('MONGO_DB_HOST', '127.0.0.1'),
             'port' => (int) env('MONGO_DB_PORT', 27017),
-            'database' => env('MONGO_DB_DATABASE', 'permission_test'),
+            'database' => $database,
             'options' => [],
         ]);
 

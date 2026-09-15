@@ -125,8 +125,10 @@ jobs:
         run: composer update --prefer-stable --prefer-dist --no-interaction --no-progress
 
       - name: Run Infection
-        # Mutation workers share MongoDB; parallel tests would drop each other's collections.
-        run: vendor/bin/infection --threads=1 --no-progress --no-interaction
+        # Each PHP test process gets its own disposable MongoDB database.
+        env:
+          PERMISSION_MUTATION_ISOLATION: '1'
+        run: vendor/bin/infection --threads=4 --no-progress --no-interaction
 
       - name: Upload mutation report
         if: always()
