@@ -441,3 +441,11 @@ MONGO_DB_HOST=127.0.0.1 MONGO_DB_PORT=27018 vendor/bin/phpunit
 Use a dedicated test Redis instance: the test harness flushes Redis DB 15 and uses DB 14 for locks.
 MongoDB test database names must end in `_test`. Do not run suites concurrently against the same databases.
 Mutation testing uses four workers with separate MongoDB databases per PHP process; each test cleans up its worker database.
+
+### Additional import and identity safeguards
+
+`permission:migrate-from-spatie` imports polymorphic assignments for `App\Models\User` by default. Pass `--source-model=customer` for a morph-map alias, or the fully qualified original SQL model name. This is separate from `--user-model`, which selects the destination MongoDB model. Other source model types are skipped even when their numeric IDs match a user.
+
+Repeated imports deduplicate by assignment ID **and team** and preserve existing user grants. `--force` replaces a role's permission list with the SQL list, including an empty list; without it, existing role permissions are retained and imported permissions are added. Global SQL catalog records remain global regardless of the command caller's team context.
+
+Passing a permission model to `hasPermissionTo` now checks its actual ID. Passing a string still checks the permission name; configured wildcard grants continue to apply. Permission cache format 2 prevents reuse of older entries that lack IDs.

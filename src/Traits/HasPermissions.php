@@ -64,16 +64,19 @@ trait HasPermissions
         }
         $name = is_string($permission) ? $permission : $permission->getName();
 
-        $slugs = app(PermissionRegistrar::class)
-            ->getUserPermissionSlugs($this);
+        $registrar = app(PermissionRegistrar::class);
+        $slugs = $registrar->getUserPermissionSlugs($this);
+        $matches = is_string($permission)
+            ? in_array($name, $slugs, strict: true)
+            : in_array((string) $permission->getKey(), $registrar->getUserPermissionIds($this), strict: true);
 
-        if (in_array($name, $slugs, strict: true)) {
+        if ($matches) {
             return true;
         }
 
         if (config('permission.enable_wildcard_permission', false)) {
             foreach ($slugs as $owned) {
-                if (WildcardPermission::implies($owned, $name)) {
+                if ((is_string($permission) || $owned !== $name) && WildcardPermission::implies($owned, $name)) {
                     return true;
                 }
             }

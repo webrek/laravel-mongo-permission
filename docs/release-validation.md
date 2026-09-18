@@ -33,3 +33,11 @@ A later Redis run exposed a timing-sensitive one-second grant test; its applicat
 Mutation testing runs separately with existing MSI 80% and covered MSI 90% thresholds. Its final result must be reviewed in the latest PR checks before treating the release checks as complete. Mutation tests use isolated per-process MongoDB databases and four workers; reports are uploaded as artifacts, including hidden files.
 
 No Octane, Redis Cluster/failover or production-load validation is claimed. No stable version number has been selected; compatibility changes must be reviewed before tagging. Publishing the draft as a release remains a separate action.
+
+## Follow-up regressions — 2026-09-17
+
+Added 45 behavioral tests (259 total) covering expiry boundaries, permission model identity, mixed-team grant preservation, conflicting writes, lock support, scoped context restoration, branching hierarchies, CLI diagnostics and migration edge cases. The tests reproduced and drove fixes for same-name permission identity confusion, incorrect CLI traces, and polymorphic/team/deduplication/context/force issues in Spatie imports.
+
+Local verification: 259 tests / 738 assertions pass with Redis; array runs have 256 passing tests plus 3 Redis-only skips / 723 assertions. Consumer platform: 38 tests / 99 assertions with Redis. PHPStan and Composer audit pass.
+
+The per-mutant timeout is increased to 60 seconds: slow coverage-selected integration suites must be given enough time to finish rather than counting runner timeouts as detected mutations. MSI thresholds remain 80% / 90%, with no new source exclusions or mutator suppressions. Updated full-matrix and mutation results are recorded in PR #1 checks.

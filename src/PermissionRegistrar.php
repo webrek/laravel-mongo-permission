@@ -28,6 +28,20 @@ class PermissionRegistrar
         return $this;
     }
 
+    /** Run work in a team context without changing the caller's resolver state. */
+    public function withTeamId(?string $teamId, callable $callback): mixed
+    {
+        $previous = $this->teamId;
+        $wasExplicit = $this->teamIdExplicitlySet;
+        $this->setTeamId($teamId);
+        try {
+            return $callback();
+        } finally {
+            $this->teamId = $previous;
+            $this->teamIdExplicitlySet = $wasExplicit;
+        }
+    }
+
     public function getTeamId(): ?string
     {
         if ($this->teamIdExplicitlySet) {
@@ -55,6 +69,13 @@ class PermissionRegistrar
     public function getUserPermissionSlugs(object $user): array
     {
         return $this->namesFromEntries($this->entriesFor($user, 'permissions'));
+    }
+
+    public function getUserPermissionIds(object $user): array
+    {
+        return collect($this->entriesFor($user, 'permissions'))
+            ->filter(fn ($entry) => $entry['expires_at'] === null || $entry['expires_at'] > Carbon::now()->getTimestamp())
+            ->pluck('id')->unique()->values()->all();
     }
 
     public function getUserRoleSlugs(object $user, ?string $guard = null): array
@@ -292,6 +313,7 @@ class PermissionRegistrar
                 continue;
             }
             $entries[] = [
+                'id' => (string) $perm->getKey(),
                 'name' => $perm->name,
                 'expires_at' => $grant['expires_at'],
             ];
@@ -378,6 +400,7 @@ class PermissionRegistrar
         $scope = hash('sha256', serialize([$teamId, $guard, (bool) config('permission.teams'), (bool) config('permission.strict_team_isolation')]));
         $revision = $this->generation($this->versionKey().'.user.'.$userId);
 
-        return "{$ns}.v{$this->cacheVersion()}.user.{$userId}.r{$revision}.scope.{$scope}.{$kind}";
+        // Format 2 includes permission identity; do not reuse older name-only entries.
+        return "{$ns}.format2.v{$this->cacheVersion()}.user.{$userId}.r{$revision}.scope.{$scope}.{$kind}";
     }
 }
