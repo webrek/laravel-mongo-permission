@@ -11,6 +11,38 @@ use Webrek\MongoPermission\Tests\SqlMigrationTestCase;
 
 class MigrationBoundaryTest extends SqlMigrationTestCase
 {
+    public function test_numeric_sql_team_ids_remain_usable_and_import_is_idempotent(): void
+    {
+        $sql = DB::connection('spatie_sql');
+        foreach (['permissions', 'roles', 'model_has_roles', 'model_has_permissions'] as $table) {
+            $definition = $sql->selectOne('SELECT sql FROM sqlite_master WHERE name = ?', [$table])->sql;
+            $sql->statement('DROP TABLE '.$table);
+            $sql->statement(str_replace('team_id VARCHAR', 'team_id INTEGER', $definition));
+        }
+        $this->seedSampleData();
+        foreach (['permissions', 'roles', 'model_has_roles', 'model_has_permissions'] as $table) {
+            $sql->table($table)->update(['team_id' => 0]);
+        }
+        config(['permission.teams' => true, 'permission.strict_team_isolation' => true]);
+        setPermissionsTeamId('0');
+        $alice = TestUser::create(['name' => 'Alice', 'email' => 'alice@example.com']);
+        $this->runMigrate();
+        $this->assertTrue($alice->fresh()->hasRole('editor'));
+        $this->assertTrue($alice->fresh()->hasPermissionTo('edit articles'));
+        $this->assertTrue($alice->fresh()->hasDirectPermission('delete articles'));
+        $this->runMigrate();
+        $this->assertSame(2, Role::count());
+        $this->assertSame(3, Permission::count());
+        $this->assertCount(1, $alice->fresh()->role_ids);
+        $this->assertCount(1, $alice->fresh()->permission_ids);
+        $inherited = Permission::findByName('edit articles');
+        $direct = Permission::findByName('delete articles');
+        setPermissionsTeamId('1');
+        $this->assertFalse($alice->fresh()->hasRole('editor'));
+        $this->assertFalse($alice->fresh()->hasPermissionTo($inherited));
+        $this->assertFalse($alice->fresh()->hasDirectPermission($direct));
+    }
+
     public function test_other_polymorphic_model_cannot_grant_access_to_same_numbered_user(): void
     {
         $this->seedSampleData();

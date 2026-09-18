@@ -36,8 +36,8 @@ No Octane, Redis Cluster/failover or production-load validation is claimed. No s
 
 ## Follow-up regressions — 2026-09-17
 
-Added 45 behavioral tests (259 total) covering expiry boundaries, permission model identity, mixed-team grant preservation, conflicting writes, lock support, scoped context restoration, branching hierarchies, CLI diagnostics and migration edge cases. The tests reproduced and drove fixes for same-name permission identity confusion, incorrect CLI traces, and polymorphic/team/deduplication/context/force issues in Spatie imports.
+Added 46 behavioral tests (260 total) covering expiry boundaries, permission model identity, mixed-team grant preservation, conflicting writes, lock support, scoped context restoration, branching hierarchies, CLI diagnostics and migration edge cases. The tests reproduced and drove fixes for same-name permission identity confusion, incorrect CLI traces, and polymorphic/team/deduplication/context/force issues in Spatie imports. Numeric SQL team IDs are normalized to strings; a regression verifies team `0`, repeated imports and denial from a different team.
 
-Local verification: 259 tests / 738 assertions pass with Redis; array runs have 256 passing tests plus 3 Redis-only skips / 723 assertions. Consumer platform: 38 tests / 99 assertions with Redis. PHPStan and Composer audit pass.
+Local verification: 260 tests / 748 assertions pass with Redis; array runs have 257 passing tests plus 3 Redis-only skips / 733 assertions. Consumer platform: 38 tests / 99 assertions with Redis. PHPStan and Composer audit pass.
 
 The per-mutant timeout is increased to 60 seconds: slow coverage-selected integration suites must be given enough time to finish rather than counting runner timeouts as detected mutations. MSI thresholds remain 80% / 90%, with no new source exclusions or mutator suppressions. Updated full-matrix and mutation results are recorded in PR #1 checks.

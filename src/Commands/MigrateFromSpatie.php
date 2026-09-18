@@ -83,7 +83,7 @@ class MigrateFromSpatie extends Command
             $existing = $permClass::query()
                 ->where('name', $sp->name)
                 ->where('guard_name', $sp->guard_name ?? 'web')
-                ->where('team_id', $sp->team_id ?? null)
+                ->where('team_id', isset($sp->team_id) ? (string) $sp->team_id : null)
                 ->first();
 
             if ($existing) {
@@ -108,7 +108,7 @@ class MigrateFromSpatie extends Command
             $perm = $permClass::create([
                 'name' => $sp->name,
                 'guard_name' => $sp->guard_name ?? 'web',
-                'team_id' => $sp->team_id ?? null,
+                'team_id' => isset($sp->team_id) ? (string) $sp->team_id : null,
             ]);
             $this->permissionMap[(string) $sp->id] = (string) $perm->getKey();
             $this->permsCreated++;
@@ -120,7 +120,7 @@ class MigrateFromSpatie extends Command
             $existing = $roleClass::query()
                 ->where('name', $sr->name)
                 ->where('guard_name', $sr->guard_name ?? 'web')
-                ->where('team_id', $sr->team_id ?? null)
+                ->where('team_id', isset($sr->team_id) ? (string) $sr->team_id : null)
                 ->first();
 
             if ($existing) {
@@ -145,7 +145,7 @@ class MigrateFromSpatie extends Command
             $role = $roleClass::create([
                 'name' => $sr->name,
                 'guard_name' => $sr->guard_name ?? 'web',
-                'team_id' => $sr->team_id ?? null,
+                'team_id' => isset($sr->team_id) ? (string) $sr->team_id : null,
             ]);
             $this->roleMap[(string) $sr->id] = (string) $role->getKey();
             $this->rolesCreated++;
@@ -255,7 +255,7 @@ class MigrateFromSpatie extends Command
             }
             $roleAssignments[$sqlUserId][] = [
                 'role_id' => $mongoRoleId,
-                'team_id' => $row->team_id ?? null,
+                'team_id' => isset($row->team_id) ? (string) $row->team_id : null,
                 'expires_at' => null,
             ];
         }
@@ -272,7 +272,7 @@ class MigrateFromSpatie extends Command
             }
             $permAssignments[$sqlUserId][] = [
                 'permission_id' => $mongoPermId,
-                'team_id' => $row->team_id ?? null,
+                'team_id' => isset($row->team_id) ? (string) $row->team_id : null,
                 'expires_at' => null,
             ];
         }

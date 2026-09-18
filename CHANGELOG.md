@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restrict Spatie imports to `--source-model` (default `App\Models\User`); preserve per-team assignments, deduplicate repeated edges and reset counters/maps on each invocation.
 - Import global catalogs independently of caller team context, restore resolver state afterwards, and make `--force` replace role permissions including empty source roles.
 - Preserve concurrent grant writes during migration and invalidate affected user caches.
+- Normalize numeric SQL team identifiers to strings during import so team-scoped checks and repeated imports remain consistent.
 - Scope role/permission lookup, grant mutations and permission lists by team and guard; prefer team catalogs over global definitions. Reject cross-team and cross-guard hierarchy edges.
 - Invalidate revocations across all affected teams and live registrars. Serialize cache generation changes, respect the configured store and TTL, and preserve unrelated application cache on reset.
 - Use compare-and-swap for user grants and role permission arrays so concurrent additions do not overwrite each other. Synchronization preserves assignments in other teams and guards.
