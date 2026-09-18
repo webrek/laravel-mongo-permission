@@ -135,12 +135,12 @@ class Role extends Model implements RoleContract
         if (! $userClass) {
             return collect();
         }
-        $id = (string) $this->getKey();
+        $references = Entry::queryIds([$this->getKey()]);
 
         return $userClass::query()
-            ->where(function ($q) use ($id): void {
-                $q->where('role_ids', $id)
-                    ->orWhere('role_ids.role_id', $id);
+            ->where(function ($q) use ($references): void {
+                $q->whereIn('role_ids', $references)
+                    ->orWhereIn('role_ids.role_id', $references);
             })
             ->get();
     }

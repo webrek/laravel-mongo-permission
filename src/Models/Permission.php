@@ -125,6 +125,6 @@ class Permission extends Model implements PermissionContract
     {
         $roleClass = config('permission.models.role');
 
-        return $roleClass::query()->where('permission_ids', (string) $this->getKey())->get();
+        return $roleClass::query()->whereIn('permission_ids', Entry::queryIds([$this->getKey()]))->get();
     }
 }
