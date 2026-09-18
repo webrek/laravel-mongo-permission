@@ -122,11 +122,15 @@ class PermissionRegistrar
             throw new \LogicException('Permission cache requires a store that supports atomic locks.');
         }
 
-        // FileStore::increment is read/modify/write; serialize all writers,
-        // including initialization, rather than relying on driver-specific behavior.
+        // FileStore::increment is read/modify/write, so keep writer locks.
+        // Use the store's increment for existing counters: Redis can preserve
+        // concurrent increments even if a paused writer outlives its lock lease.
         return $driver->lock($key.'.lock', 10)->block(5, function () use ($cache, $key, $increment) {
             $current = $cache->get($key);
-            $next = $current === null ? (int) (microtime(true) * 1000000) : (int) $current;
+            if ($current !== null) {
+                return $increment ? (int) $cache->increment($key) : (int) $current;
+            }
+            $next = (int) (microtime(true) * 1000000);
             if ($increment) {
                 $next++;
             }

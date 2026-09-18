@@ -147,6 +147,9 @@ class ListUsers extends Command
             return [];
         }
 
+        $roles = Entry::queryIds($roles);
+        $permissions = Entry::queryIds($permissions);
+
         return $userClass::query()->where(function ($q) use ($roles, $permissions) {
             if ($roles) {
                 $q->whereIn('role_ids', $roles)->orWhereIn('role_ids.role_id', $roles);

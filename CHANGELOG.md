@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Document upgrade behavior in [the v1.7.0 upgrade guide](docs/upgrading-from-1.7.md).
 
 ### Fixed
+
+- Preserve concurrent Redis cache generation increments when a writer resumes after its lock lease expires.
+- Restore the previous team context after middleware execution, including downstream exceptions.
+- Count only the requested guard in `hasExactRoles`.
+- Prune expired grants with compare-and-swap so concurrent assignments survive cleanup.
+- Preserve valid zero-valued SQL user identifiers and match fields during imports while rejecting empty matches.
+- Include native BSON ObjectId references in reverse user queries and role/permission deletion cleanup.
+- Remove a no-op reflection accessibility call deprecated in PHP 8.5.
 - Check permission model identity instead of accepting a different same-named permission; retain explicit wildcard grants and invalidate the old name-only cache format.
 - Trace inherited and legacy grants in `permission:check`, with current/explicit team scope, global fallback and scoped wildcard diagnostics.
 - Restrict Spatie imports to `--source-model` (default `App\Models\User`); preserve per-team assignments, deduplicate repeated edges and reset counters/maps on each invocation.

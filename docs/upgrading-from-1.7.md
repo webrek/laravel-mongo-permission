@@ -9,6 +9,9 @@ These notes apply to the corrections on `fix/permission-audit`; no release tag h
 - Review calls that modify user attributes before assigning permissions. Assignment methods update only the grant arrays; explicitly save unrelated dirty attributes.
 - Review tenant hierarchy data for invalid cross-team or cross-guard edges. Invalid legacy edges no longer grant access. Verify expected access in each team after upgrading.
 - Cache entries now default to 86400 seconds, including a previously published null TTL. Grant expiration remains independent of cache expiration.
+- `team-context` now restores the caller's context after the downstream request finishes or throws. Code that needs a team outside the request pipeline should set its own explicit context.
+- `permission:prune-expired` updates assignment arrays atomically and preserves concurrent additions. It no longer saves an entire user document or emits the user's Eloquent save events; use the command result for cleanup reporting.
+- Reverse user queries and deletion cleanup accept both string and native BSON ObjectId references. Custom text identifiers continue to work.
 
 ## Deployment sequence
 

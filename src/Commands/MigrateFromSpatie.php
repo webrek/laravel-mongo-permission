@@ -224,7 +224,7 @@ class MigrateFromSpatie extends Command
             ->all();
 
         // Resolve match values → Mongo users (one fetch)
-        $matchValues = array_values(array_filter($sqlUserMatch));
+        $matchValues = array_values(array_filter($sqlUserMatch, fn ($value) => $value !== null && $value !== ''));
         $mongoUsers = empty($matchValues)
             ? collect()
             : $userClass::query()->whereIn($matchBy, $matchValues)->get()->keyBy(fn ($u) => $u->{$matchBy});
@@ -250,7 +250,7 @@ class MigrateFromSpatie extends Command
             }
             $sqlUserId = (string) ($row->model_id ?? $row->user_id ?? null);
             $mongoRoleId = $this->roleMap[(string) $row->role_id] ?? null;
-            if (! $sqlUserId || ! $mongoRoleId) {
+            if ($sqlUserId === '' || ! $mongoRoleId) {
                 continue;
             }
             $roleAssignments[$sqlUserId][] = [
@@ -267,7 +267,7 @@ class MigrateFromSpatie extends Command
             }
             $sqlUserId = (string) ($row->model_id ?? $row->user_id ?? null);
             $mongoPermId = $this->permissionMap[(string) $row->permission_id] ?? null;
-            if (! $sqlUserId || ! $mongoPermId) {
+            if ($sqlUserId === '' || ! $mongoPermId) {
                 continue;
             }
             $permAssignments[$sqlUserId][] = [

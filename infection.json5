@@ -15,6 +15,7 @@
     "minMsi": 80,
     "minCoveredMsi": 90,
     "logs": {
-        "text": ".infection/infection.log"
+        "text": ".infection/infection.log",
+        "json": ".infection/infection.json"
     }
 }

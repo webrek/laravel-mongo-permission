@@ -12,7 +12,6 @@ class Guard
 
         if (property_exists($model, 'guard_name')) {
             $ref = new \ReflectionProperty($model, 'guard_name');
-            $ref->setAccessible(true);
             if ($ref->isInitialized($model)) {
                 $value = $ref->getValue($model);
                 if (! empty($value)) {

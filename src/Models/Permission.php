@@ -11,6 +11,7 @@ use Webrek\MongoPermission\Exceptions\PermissionAlreadyExists;
 use Webrek\MongoPermission\Exceptions\PermissionDoesNotExist;
 use Webrek\MongoPermission\PermissionRegistrar;
 use Webrek\MongoPermission\Support\AtomicArray;
+use Webrek\MongoPermission\Support\Entry;
 
 class Permission extends Model implements PermissionContract
 {
@@ -55,6 +56,7 @@ class Permission extends Model implements PermissionContract
 
         static::deleted(function (self $perm): void {
             $id = (string) $perm->getKey();
+            $references = Entry::queryIds([$id]);
 
             // Resolve user model and its collection from Auth config (fallback 'users')
             $userClass = config('auth.providers.users.model');
@@ -65,13 +67,13 @@ class Permission extends Model implements PermissionContract
                     ->selectCollection($userInstance->getTable());
                 // Remove both the structured form ({permission_id: id}) and the
                 // legacy flat form (the bare id string).
-                $collection->updateMany([], ['$pull' => ['permission_ids' => ['permission_id' => $id]]]);
-                $collection->updateMany([], ['$pull' => ['permission_ids' => $id]]);
+                $collection->updateMany([], ['$pull' => ['permission_ids' => ['permission_id' => ['$in' => $references]]]]);
+                $collection->updateMany([], ['$pull' => ['permission_ids' => ['$in' => $references]]]);
             }
 
             // Pull from roles.permission_ids
             $roleClass = config('permission.models.role');
-            $roleClass::query()->where('permission_ids', $id)->each(function ($role) use ($id): void {
+            $roleClass::query()->whereIn('permission_ids', $references)->each(function ($role) use ($id): void {
                 AtomicArray::mutate($role, 'permission_ids', fn ($ids) => array_values(array_diff($ids, [$id])));
             });
 

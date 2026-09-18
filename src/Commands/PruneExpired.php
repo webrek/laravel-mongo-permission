@@ -5,6 +5,7 @@ namespace Webrek\MongoPermission\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Webrek\MongoPermission\PermissionRegistrar;
+use Webrek\MongoPermission\Support\AtomicArray;
 use Webrek\MongoPermission\Support\Expiry;
 
 class PruneExpired extends Command
@@ -20,6 +21,7 @@ class PruneExpired extends Command
         $userClass = $this->option('user-model') ?: config('auth.providers.users.model');
         if (! $userClass || ! class_exists($userClass)) {
             $this->error('Could not resolve a user model. Pass --user-model= or set auth.providers.users.model.');
+
             return self::FAILURE;
         }
 
@@ -30,21 +32,20 @@ class PruneExpired extends Command
         $usersTouched = 0;
 
         foreach ($userClass::query()->cursor() as $user) {
-            $originalRoles = $user->role_ids ?? [];
-            $originalPerms = $user->permission_ids ?? [];
-
-            $keptRoles = array_values(array_filter(
-                $originalRoles,
-                fn ($e) => ! Expiry::isExpired((array) $e, $now),
-            ));
-            $keptPerms = array_values(array_filter(
-                $originalPerms,
-                fn ($e) => ! Expiry::isExpired((array) $e, $now),
-            ));
-
-            $rolesRemoved = count($originalRoles) - count($keptRoles);
-            $permsRemoved = count($originalPerms) - count($keptPerms);
-
+            $removed = [];
+            foreach (['role_ids', 'permission_ids'] as $field) {
+                $prune = fn (array $entries) => array_values(array_filter(
+                    $entries, fn ($entry) => ! Expiry::isExpired((array) $entry, $now),
+                ));
+                $before = $user->getAttribute($field) ?? [];
+                $after = $prune($before);
+                if (! $dryRun && $before != $after) {
+                    [$before, $after] = AtomicArray::mutate($user, $field, $prune);
+                }
+                $removed[$field] = count($before) - count($after);
+            }
+            $rolesRemoved = $removed['role_ids'];
+            $permsRemoved = $removed['permission_ids'];
             if ($rolesRemoved === 0 && $permsRemoved === 0) {
                 continue;
             }
@@ -56,10 +57,6 @@ class PruneExpired extends Command
             if ($dryRun) {
                 continue;
             }
-
-            $user->role_ids = $keptRoles;
-            $user->permission_ids = $keptPerms;
-            $user->save();
 
             app(PermissionRegistrar::class)->forgetUserCache(
                 (string) $user->getKey(),

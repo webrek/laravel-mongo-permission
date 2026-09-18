@@ -31,8 +31,9 @@ class CommandBoundaryTest extends TestCase
     public function test_catalog_commands_honor_explicit_guard_and_do_not_warn_for_literal_permissions(): void
     {
         $this->assertSame(0, Artisan::call('permission:create-permission', ['name' => 'reports.read', '--guard' => 'api']));
-        $this->assertStringContainsString('Permission "reports.read" created for guard "api".', Artisan::output());
-        $this->assertStringNotContainsString('Heads up', Artisan::output());
+        $output = Artisan::output();
+        $this->assertStringContainsString('Permission "reports.read" created for guard "api".', $output);
+        $this->assertStringNotContainsString('Heads up', $output);
         $this->assertSame(0, Artisan::call('permission:create-role', ['name' => 'reporter', '--guard' => 'api', 'permissions' => ['reports.read']]));
         $this->assertStringContainsString('Role "reporter" created for guard "api".', Artisan::output());
         $role = Role::findByName('reporter', 'api');

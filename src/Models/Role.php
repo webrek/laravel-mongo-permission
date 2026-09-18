@@ -17,6 +17,7 @@ use Webrek\MongoPermission\Exceptions\RoleHierarchyCycle;
 use Webrek\MongoPermission\Exceptions\RoleHierarchyTooDeep;
 use Webrek\MongoPermission\PermissionRegistrar;
 use Webrek\MongoPermission\Support\AtomicArray;
+use Webrek\MongoPermission\Support\Entry;
 use Webrek\MongoPermission\Support\TeamScope;
 
 class Role extends Model implements RoleContract
@@ -63,6 +64,7 @@ class Role extends Model implements RoleContract
 
         static::deleted(function (self $role): void {
             $id = (string) $role->getKey();
+            $references = Entry::queryIds([$id]);
             $userClass = config('auth.providers.users.model');
             if ($userClass) {
                 $userInstance = new $userClass;
@@ -71,8 +73,8 @@ class Role extends Model implements RoleContract
                     ->selectCollection($userInstance->getTable());
                 // Remove both the structured form ({role_id: id}) and the legacy
                 // flat form (the bare id string) so old data is cleaned up too.
-                $collection->updateMany([], ['$pull' => ['role_ids' => ['role_id' => $id]]]);
-                $collection->updateMany([], ['$pull' => ['role_ids' => $id]]);
+                $collection->updateMany([], ['$pull' => ['role_ids' => ['role_id' => ['$in' => $references]]]]);
+                $collection->updateMany([], ['$pull' => ['role_ids' => ['$in' => $references]]]);
             }
 
             app(PermissionRegistrar::class)->bumpCacheVersion();

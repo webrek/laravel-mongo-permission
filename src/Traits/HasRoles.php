@@ -96,7 +96,8 @@ trait HasRoles
 
     public function hasExactRoles(array $roles, ?string $guard = null): bool
     {
-        if ($this->roles()->count() !== count($roles)) {
+        $ids = app(PermissionRegistrar::class)->getUserRoleIds($this, $guard);
+        if (count(array_unique($ids)) !== count($roles)) {
             return false;
         }
 

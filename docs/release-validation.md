@@ -41,3 +41,11 @@ Added 46 behavioral tests (260 total) covering expiry boundaries, permission mod
 Local verification: 260 tests / 748 assertions pass with Redis; array runs have 257 passing tests plus 3 Redis-only skips / 733 assertions. Consumer platform: 38 tests / 99 assertions with Redis. PHPStan and Composer audit pass.
 
 The per-mutant timeout is increased to 60 seconds: slow coverage-selected integration suites must be given enough time to finish rather than counting runner timeouts as detected mutations. MSI thresholds remain 80% / 90%, with no new source exclusions or mutator suppressions. Updated full-matrix and mutation results are recorded in PR #1 checks.
+
+## Behavioral contract regressions — 2026-09-18
+
+Added coverage for custom BSON IDs, textual IDs, explicit guards, scoped middleware, expired grants, CLI output and candidate filtering, import edge cases, cache recovery and lock coordination. Regressions reproduced and corrected request team context leakage, exact-role counts using the wrong guard, concurrent grants lost during pruning, SQL identifier zero being skipped, and reverse queries/cascades missing BSON references.
+
+A deterministic paused-writer test also reproduced cache generation updates being overwritten after lease expiry. Existing counters now use the cache driver's increment operation while retaining locks for file-store serialization. Redis's atomic increment preserves both writes in this case. This does not claim failover or arbitrary lease-expiry safety for every cache driver.
+
+Local array validation: 327 tests, 1,136 assertions, with three Redis-only skips. Consumer Laravel platform with Docker Redis: 38 tests, 99 assertions. PHPStan passes. Mutation validation and the full CI matrix are being rerun for this revision; these functional results alone do not establish completion of the release gates.

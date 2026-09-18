@@ -16,7 +16,7 @@ class CreatePermission extends Command
         $name = $this->argument('name');
         $guard = $this->option('guard') ?: config('permission.default_guard');
 
-        if ($name === '*' || str_ends_with($name, '.*') || str_contains($name, '*')) {
+        if (str_contains($name, '*')) {
             $this->warn(sprintf(
                 'Heads up: "%s" is a wildcard permission name. It will match anything that matches the pattern. Make sure that is what you want.',
                 $name,
