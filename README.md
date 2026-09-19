@@ -21,10 +21,12 @@ CI runs every release against the full PHP × Laravel matrix above. Laravel 10 a
 ## Install
 
 ```bash
-composer require webrek/laravel-mongo-permission
+composer require webrek/laravel-mongo-permission:^2.0
 php artisan vendor:publish --tag=permission-config
 php artisan permission:create-indexes
 ```
+
+Upgrading from 1.x? Read the [2.0 upgrade guide](docs/upgrading-from-1.7.md) before changing your Composer constraint.
 
 ## Quick start
 

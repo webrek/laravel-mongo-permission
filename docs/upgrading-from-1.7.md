@@ -1,6 +1,8 @@
-# Upgrading from v1.7.0
+# Upgrading from v1.7.0 to v2.0.0
 
-These notes apply to the corrections on `fix/permission-audit`; no release tag has been assigned yet.
+Version 2.0.0 changes authorization boundaries and grant persistence behavior. Review the following requirements before upgrading an existing application.
+
+Update the package constraint to `^2.0` after completing the staging checks below.
 
 ## Before deploying
 

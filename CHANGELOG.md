@@ -4,7 +4,7 @@ All notable changes to `webrek/laravel-mongo-permission` are documented
 here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-09-19
 
 ### Validation
 - Run array and Redis suites across PHP 8.2–8.5 and Laravel 12/13 (Laravel 13 requires PHP 8.3+), with dependency auditing on each matrix entry.
@@ -38,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cache catalog lookups, batch grant event model reads, and reuse shared ancestor reads during permission evaluation.
 - Create reverse user-assignment indexes and prefilter candidates for `permission:list-users`.
 
-### Compatibility
+### Breaking changes and upgrade requirements
 - Cache entries expire after 86400 seconds by default (also the fallback for a published null TTL) so retired generations are bounded. Grant expiration still takes effect immediately within a warm entry.
 - Configure a shared Laravel cache store supporting atomic locks for multiple workers (for example file or Redis). Array cache is suitable for isolated tests only.
 - Grant mutations update only their assignment arrays and emit package events; save unrelated dirty user attributes separately.
