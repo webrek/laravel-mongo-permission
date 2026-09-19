@@ -49,3 +49,13 @@ Added coverage for custom BSON IDs, textual IDs, explicit guards, scoped middlew
 A deterministic paused-writer test also reproduced cache generation updates being overwritten after lease expiry. Existing counters now use the cache driver's increment operation while retaining locks for file-store serialization. Redis's atomic increment preserves both writes in this case. This does not claim failover or arbitrary lease-expiry safety for every cache driver.
 
 Local array validation: 327 tests, 1,136 assertions, with three Redis-only skips. Consumer Laravel platform with Docker Redis: 38 tests, 99 assertions. PHPStan passes. Mutation validation and the full CI matrix are being rerun for this revision; these functional results alone do not establish completion of the release gates.
+
+## Final validated code — 2026-09-18
+
+[CI run 35394466483](https://github.com/webrek/laravel-mongo-permission/actions/runs/35394466483), code commit `7dc05d3`, passed all nine jobs: seven PHP/Laravel combinations (each with array, Redis and dependency auditing), PHPStan, and Infection. The package suite now contains 340 tests: Redis passes all 340 with 1,187 assertions; array passes 337 with three Redis-only skips and 1,172 assertions.
+
+Infection generated 1,580 mutants: 1,424 killed, 145 escaped, four uncovered and seven timed out; no errors, syntax errors or ignored mutants. MSI is **90.57%**, covered MSI **90.80%**, mutation coverage **99.75%**. The existing 80% / 90% thresholds, source exclusions and mutator selection are unchanged. The seven timed-out mutations introduce non-terminating graph/retry behavior; the killed-only ratio also exceeds 90% of covered mutants. The full JSON/text reports are attached to the CI run. Earlier local mutation runs under heavy load had additional timeouts and are not used as release evidence.
+
+The consumer Laravel platform passes 38 Redis tests / 99 assertions. Fifteen live HTTP checks passed again with actual sessions and CSRF: login/logout, administrator pages, reader access and forbidden writes. These checks do not include browser rendering. Six benchmark scenarios preserve their MongoDB query counts; the reverse-role query including string and native BSON references uses indexes and examines one matching document. No production-load guarantee is inferred from this local measurement.
+
+Release validation gates described here pass. The PR remains a draft and no merge or release tag has been performed. Compatibility review and version selection are still required before publishing; Octane and Redis Cluster/failover remain outside this validation.
