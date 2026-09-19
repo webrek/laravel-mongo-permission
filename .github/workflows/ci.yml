@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -17,10 +18,17 @@ jobs:
         exclude:
           - php: '8.2'
             laravel: '13.*'
-          - php: '8.3'
-            laravel: '13.*'
 
     services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
       mongo:
         image: mongo:7
         ports:
@@ -43,7 +51,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: mongodb
+          extensions: mongodb, redis
           coverage: none
 
       - name: Install Composer dependencies
@@ -51,7 +59,17 @@ jobs:
           composer require "laravel/framework:${{ matrix.laravel }}" --no-update --no-interaction
           composer update --prefer-stable --prefer-dist --no-interaction --no-progress
 
-      - name: Run tests
+      - name: Audit dependencies
+        run: composer audit
+
+      - name: Run tests with array cache
+        run: vendor/bin/phpunit
+
+      - name: Run tests with shared Redis cache
+        env:
+          PERMISSION_TEST_CACHE: redis
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
         run: vendor/bin/phpunit
 
   analyse:
@@ -107,4 +125,15 @@ jobs:
         run: composer update --prefer-stable --prefer-dist --no-interaction --no-progress
 
       - name: Run Infection
-        run: vendor/bin/infection --threads=max --no-progress --no-interaction
+        # Each PHP test process gets its own disposable MongoDB database.
+        env:
+          PERMISSION_MUTATION_ISOLATION: '1'
+        run: vendor/bin/infection --threads=4 --no-progress --no-interaction
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: .infection/
+          include-hidden-files: true

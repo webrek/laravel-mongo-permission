@@ -5,8 +5,11 @@ namespace Webrek\MongoPermission\Traits;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
 use Webrek\MongoPermission\Contracts\Role as RoleContract;
+use Webrek\MongoPermission\Exceptions\GuardDoesNotMatch;
+use Webrek\MongoPermission\PermissionRegistrar;
 use Webrek\MongoPermission\Support\Entry;
 use Webrek\MongoPermission\Support\Expiry;
+use Webrek\MongoPermission\Support\TeamScope;
 
 trait HasRoles
 {
@@ -17,10 +20,11 @@ trait HasRoles
         $roleClass = config('permission.models.role');
         $ids = collect($this->role_ids ?? [])
             ->map(fn ($e) => Entry::normalize($e, 'role_id'))
-            ->filter(fn ($n) => $n['id'] !== null && Expiry::notExpired($n))
+            ->filter(fn ($n) => $n['id'] !== null && Expiry::notExpired($n) && TeamScope::grant($n['team_id']))
             ->pluck('id')
             ->all();
-        return $roleClass::query()->whereIn('_id', $ids)->get();
+
+        return $roleClass::query()->whereIn('_id', $ids)->where('guard_name', $this->guardName())->get()->filter(fn ($m) => TeamScope::catalog($m, $this->activeTeamId()))->values();
     }
 
     public function assignRole(...$roles): self
@@ -33,132 +37,43 @@ trait HasRoles
         return $this->attachRoles([$role], $expiresAt);
     }
 
-    protected function attachRoles(array $roles, ?DateTimeInterface $expiresAt): self
+    protected function attachRoles(array $entries, ?DateTimeInterface $expiresAt): self
     {
-        $ids = $this->resolveRoleIds($roles);
-        $current = Entry::ids($this->role_ids ?? [], 'role_id');
-
-        $toAdd = array_diff($ids, $current);
-        if (empty($toAdd)) {
-            return $this;
-        }
-
-        $activeTeam = $this->activeTeamId();
-        $expiresBson = Expiry::toBson($expiresAt);
-        $merged = $this->role_ids ?? [];
-        foreach ($toAdd as $id) {
-            $merged[] = [
-                'role_id' => $id,
-                'team_id' => $activeTeam,
-                'expires_at' => $expiresBson,
-            ];
-        }
-        $this->role_ids = $merged;
-        $this->save();
-
-        $roleClass = config('permission.models.role');
-        foreach ($toAdd as $id) {
-            $role = $roleClass::query()->where('_id', $id)->first();
-            event(new \Webrek\MongoPermission\Events\RoleAttached(
-                $this,
-                $role,
-                $activeTeam,
-                $this->guardName(),
-            ));
-        }
-
-        return $this;
+        return $this->mutateGrants('role', $this->resolveGrantModels($entries, 'role'), 'add', $expiresAt);
     }
 
-    public function removeRole(...$roles): self
+    public function removeRole(...$entries): self
     {
-        $ids = $this->resolveRoleIds($this->flattenInput($roles));
-        $remaining = collect($this->role_ids ?? [])
-            ->reject(fn ($e) => in_array(Entry::normalize($e, 'role_id')['id'], $ids, strict: true))
-            ->values()
-            ->all();
-
-        $removed = array_diff(
-            Entry::ids($this->role_ids ?? [], 'role_id'),
-            Entry::ids($remaining, 'role_id'),
-        );
-
-        $this->role_ids = $remaining;
-        $this->save();
-
-        if (! empty($removed)) {
-            $roleClass = config('permission.models.role');
-            foreach ($removed as $id) {
-                $role = $roleClass::query()->where('_id', $id)->first();
-                if ($role) {
-                    event(new \Webrek\MongoPermission\Events\RoleDetached(
-                        $this,
-                        $role,
-                        null,
-                        $this->guardName(),
-                    ));
-                }
-            }
-        }
-
-        return $this;
+        return $this->mutateGrants('role', $this->resolveGrantModels($this->flattenInput($entries), 'role'), 'remove');
     }
 
-    public function syncRoles(...$roles): self
+    public function syncRoles(...$entries): self
     {
-        $targetIds = $this->resolveRoleIds($this->flattenInput($roles));
-        $currentIds = Entry::ids($this->role_ids ?? [], 'role_id');
-
-        $toRemove = array_diff($currentIds, $targetIds);
-        $toAdd = array_diff($targetIds, $currentIds);
-
-        if (! empty($toRemove) || ! empty($toAdd)) {
-            $roleClass = config('permission.models.role');
-            if (! empty($toRemove)) {
-                $models = $roleClass::query()->whereIn('_id', $toRemove)->get()->all();
-                if (! empty($models)) {
-                    $this->removeRole($models);
-                }
-            }
-            if (! empty($toAdd)) {
-                $models = $roleClass::query()->whereIn('_id', $toAdd)->get()->all();
-                if (! empty($models)) {
-                    $this->assignRole($models);
-                }
-            }
-        }
-        return $this;
+        return $this->mutateGrants('role', $this->resolveGrantModels($this->flattenInput($entries), 'role'), 'sync');
     }
 
     public function hasRole(string|array|RoleContract $role, ?string $guard = null): bool
     {
-        $names = is_array($role) ? $role : [$role];
-        $activeTeam = $this->activeTeamId();
-        $strict = (bool) config('permission.strict_team_isolation', false);
-
-        foreach ($names as $r) {
-            $id = $this->resolveRoleId($r, $guard);
-            $hit = collect($this->role_ids ?? [])->contains(function ($e) use ($id, $activeTeam, $strict) {
-                $n = Entry::normalize($e, 'role_id');
-                if ($n['id'] !== $id) {
-                    return false;
+        $guard ??= $this->guardName();
+        $slugs = app(PermissionRegistrar::class)->getUserRoleSlugs($this, $guard);
+        foreach (is_array($role) ? $role : [$role] as $entry) {
+            if ($entry instanceof RoleContract) {
+                if ($entry->getGuardName() !== $guard || ! TeamScope::catalog($entry, $this->activeTeamId())) {
+                    continue;
                 }
-                if (Expiry::isExpired($n)) {
-                    return false;
-                }
-                $entryTeam = $n['team_id'];
-                if (! config('permission.teams', false)) {
+                if (in_array((string) $entry->getKey(), app(PermissionRegistrar::class)->getUserRoleIds($this, $guard), true)) {
                     return true;
                 }
-                if ($strict) {
-                    return $entryTeam === $activeTeam;
-                }
-                return $entryTeam === $activeTeam || $entryTeam === null;
-            });
-            if ($hit) {
+
+                continue;
+            } else {
+                $name = $entry;
+            }
+            if (in_array($name, $slugs, true)) {
                 return true;
             }
         }
+
         return false;
     }
 
@@ -171,14 +86,21 @@ trait HasRoles
     {
         $names = is_array($roles) ? $roles : [$roles];
         foreach ($names as $r) {
-            if (! $this->hasRole($r, $guard)) return false;
+            if (! $this->hasRole($r, $guard)) {
+                return false;
+            }
         }
+
         return true;
     }
 
     public function hasExactRoles(array $roles, ?string $guard = null): bool
     {
-        if (count($this->role_ids ?? []) !== count($roles)) return false;
+        $ids = app(PermissionRegistrar::class)->getUserRoleIds($this, $guard);
+        if (count(array_unique($ids)) !== count($roles)) {
+            return false;
+        }
+
         return $this->hasAllRoles($roles, $guard);
     }
 
@@ -195,7 +117,8 @@ trait HasRoles
                 ? $r->getAllPermissionIds()
                 : ($r->permission_ids ?? []);
         })->unique()->all();
-        return $permClass::query()->whereIn('_id', $permissionIds)->get();
+
+        return $permClass::query()->whereIn('_id', $permissionIds)->where('guard_name', $this->guardName())->get()->filter(fn ($m) => TeamScope::catalog($m, $this->activeTeamId()))->values();
     }
 
     protected function resolveRoleIds(array $entries): array
@@ -204,6 +127,7 @@ trait HasRoles
         foreach ($entries as $e) {
             $ids[] = $this->resolveRoleId($e);
         }
+
         return $ids;
     }
 
@@ -214,10 +138,12 @@ trait HasRoles
         if ($entry instanceof RoleContract) {
             $actualGuard = $entry->getGuardName();
             if ($actualGuard !== $expectedGuard) {
-                throw \Webrek\MongoPermission\Exceptions\GuardDoesNotMatch::create($actualGuard, $expectedGuard);
+                throw GuardDoesNotMatch::create($actualGuard, $expectedGuard);
             }
+
             return (string) $entry->getKey();
         }
+
         return (string) $roleClass::findByName($entry, $expectedGuard)->getKey();
     }
 }

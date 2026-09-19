@@ -3,21 +3,31 @@
 namespace Webrek\MongoPermission\Traits;
 
 use DateTimeInterface;
+use Illuminate\Support\Collection;
 use Webrek\MongoPermission\Contracts\Permission as PermissionContract;
+use Webrek\MongoPermission\Exceptions\GuardDoesNotMatch;
+use Webrek\MongoPermission\Exceptions\PermissionDoesNotExist;
+use Webrek\MongoPermission\Guard;
+use Webrek\MongoPermission\PermissionRegistrar;
 use Webrek\MongoPermission\Support\Entry;
 use Webrek\MongoPermission\Support\Expiry;
+use Webrek\MongoPermission\Support\TeamScope;
+use Webrek\MongoPermission\WildcardPermission;
 
 trait HasPermissions
 {
+    use MutatesGrants;
+
     public function permissions()
     {
         $permClass = config('permission.models.permission');
         $ids = collect($this->permission_ids ?? [])
             ->map(fn ($e) => Entry::normalize($e, 'permission_id'))
-            ->filter(fn ($n) => $n['id'] !== null && Expiry::notExpired($n))
+            ->filter(fn ($n) => $n['id'] !== null && Expiry::notExpired($n) && TeamScope::grant($n['team_id']))
             ->pluck('id')
             ->all();
-        return $permClass::query()->whereIn('_id', $ids)->get();
+
+        return $permClass::query()->whereIn('_id', $ids)->where('guard_name', $this->guardName())->get()->filter(fn ($m) => TeamScope::catalog($m, $this->activeTeamId()))->values();
     }
 
     public function givePermissionTo(...$permissions): self
@@ -30,123 +40,49 @@ trait HasPermissions
         return $this->attachPermissions([$permission], $expiresAt);
     }
 
-    protected function attachPermissions(array $permissions, ?DateTimeInterface $expiresAt): self
+    protected function attachPermissions(array $entries, ?DateTimeInterface $expiresAt): self
     {
-        $ids = $this->resolvePermissionIds($permissions);
-        $current = Entry::ids($this->permission_ids ?? [], 'permission_id');
-
-        $toAdd = array_diff($ids, $current);
-        if (empty($toAdd)) {
-            return $this;
-        }
-
-        $activeTeam = $this->activeTeamId();
-        $expiresBson = Expiry::toBson($expiresAt);
-        $merged = $this->permission_ids ?? [];
-        foreach ($toAdd as $id) {
-            $merged[] = [
-                'permission_id' => $id,
-                'team_id' => $activeTeam,
-                'expires_at' => $expiresBson,
-            ];
-        }
-        $this->permission_ids = $merged;
-        $this->save();
-
-        $permClass = config('permission.models.permission');
-        foreach ($toAdd as $id) {
-            $perm = $permClass::query()->where('_id', $id)->first();
-            event(new \Webrek\MongoPermission\Events\PermissionAttached(
-                $this,
-                $perm,
-                $activeTeam,
-                $this->guardName(),
-            ));
-        }
-
-        return $this;
+        return $this->mutateGrants('permission', $this->resolveGrantModels($entries, 'permission'), 'add', $expiresAt);
     }
 
-    public function revokePermissionTo(...$permissions): self
+    public function revokePermissionTo(...$entries): self
     {
-        $ids = $this->resolvePermissionIds($this->flattenInput($permissions));
-        $remaining = collect($this->permission_ids ?? [])
-            ->reject(fn ($e) => in_array(Entry::normalize($e, 'permission_id')['id'], $ids, strict: true))
-            ->values()
-            ->all();
-
-        $removed = array_diff(
-            Entry::ids($this->permission_ids ?? [], 'permission_id'),
-            Entry::ids($remaining, 'permission_id'),
-        );
-
-        $this->permission_ids = $remaining;
-        $this->save();
-
-        if (! empty($removed)) {
-            $permClass = config('permission.models.permission');
-            foreach ($removed as $id) {
-                $perm = $permClass::query()->where('_id', $id)->first();
-                if ($perm) {
-                    event(new \Webrek\MongoPermission\Events\PermissionDetached(
-                        $this,
-                        $perm,
-                        null,
-                        $this->guardName(),
-                    ));
-                }
-            }
-        }
-
-        return $this;
+        return $this->mutateGrants('permission', $this->resolveGrantModels($this->flattenInput($entries), 'permission'), 'remove');
     }
 
-    public function syncPermissions(...$permissions): self
+    public function syncPermissions(...$entries): self
     {
-        $targetIds = $this->resolvePermissionIds($this->flattenInput($permissions));
-        $currentIds = Entry::ids($this->permission_ids ?? [], 'permission_id');
-
-        $toRemove = array_diff($currentIds, $targetIds);
-        $toAdd = array_diff($targetIds, $currentIds);
-
-        if (! empty($toRemove) || ! empty($toAdd)) {
-            $permClass = config('permission.models.permission');
-            if (! empty($toRemove)) {
-                $models = $permClass::query()->whereIn('_id', $toRemove)->get()->all();
-                if (! empty($models)) {
-                    $this->revokePermissionTo($models);
-                }
-            }
-            if (! empty($toAdd)) {
-                $models = $permClass::query()->whereIn('_id', $toAdd)->get()->all();
-                if (! empty($models)) {
-                    $this->givePermissionTo($models);
-                }
-            }
-        }
-        return $this;
+        return $this->mutateGrants('permission', $this->resolveGrantModels($this->flattenInput($entries), 'permission'), 'sync');
     }
 
     public function hasPermissionTo(string|PermissionContract $permission): bool
     {
+        if (! is_string($permission)) {
+            if ($permission->getGuardName() !== $this->guardName() || ! TeamScope::catalog($permission, $this->activeTeamId())) {
+                return false;
+            }
+        }
         $name = is_string($permission) ? $permission : $permission->getName();
 
-        $slugs = app(\Webrek\MongoPermission\PermissionRegistrar::class)
-            ->getUserPermissionSlugs($this);
+        $registrar = app(PermissionRegistrar::class);
+        $slugs = $registrar->getUserPermissionSlugs($this);
+        $matches = is_string($permission)
+            ? in_array($name, $slugs, strict: true)
+            : in_array((string) $permission->getKey(), $registrar->getUserPermissionIds($this), strict: true);
 
-        if (in_array($name, $slugs, strict: true)) {
+        if ($matches) {
             return true;
         }
 
         if (config('permission.enable_wildcard_permission', false)) {
             foreach ($slugs as $owned) {
-                if (\Webrek\MongoPermission\WildcardPermission::implies($owned, $name)) {
+                if ((is_string($permission) || $owned !== $name) && WildcardPermission::implies($owned, $name)) {
                     return true;
                 }
             }
         }
 
-        if (is_string($permission)) {
+        if (is_string($permission) && config('permission.throw_on_missing_permission', true)) {
             config('permission.models.permission')::findByName($permission, $this->guardName());
         }
 
@@ -155,9 +91,15 @@ trait HasPermissions
 
     public function hasDirectPermission(string|PermissionContract $permission): bool
     {
-        $id = is_string($permission)
-            ? (string) config('permission.models.permission')::findByName($permission, $this->guardName())->getKey()
-            : (string) $permission->getKey();
+        try {
+            $model = is_string($permission) ? config('permission.models.permission')::findByName($permission, $this->guardName()) : $permission;
+        } catch (PermissionDoesNotExist) {
+            return false;
+        }
+        if ($model->getGuardName() !== $this->guardName() || ! TeamScope::catalog($model, $this->activeTeamId())) {
+            return false;
+        }
+        $id = (string) $model->getKey();
 
         $activeTeam = $this->activeTeamId();
         $strict = (bool) config('permission.strict_team_isolation', false);
@@ -177,6 +119,7 @@ trait HasPermissions
             if ($strict) {
                 return $entryTeam === $activeTeam;
             }
+
             return $entryTeam === $activeTeam || $entryTeam === null;
         });
     }
@@ -185,11 +128,14 @@ trait HasPermissions
     {
         foreach ($this->flattenInput($permissions) as $perm) {
             try {
-                if ($this->hasPermissionTo($perm)) return true;
-            } catch (\Webrek\MongoPermission\Exceptions\PermissionDoesNotExist) {
+                if ($this->hasPermissionTo($perm)) {
+                    return true;
+                }
+            } catch (PermissionDoesNotExist) {
                 continue;
             }
         }
+
         return false;
     }
 
@@ -197,31 +143,35 @@ trait HasPermissions
     {
         foreach ($this->flattenInput($permissions) as $perm) {
             try {
-                if (! $this->hasPermissionTo($perm)) return false;
-            } catch (\Webrek\MongoPermission\Exceptions\PermissionDoesNotExist) {
+                if (! $this->hasPermissionTo($perm)) {
+                    return false;
+                }
+            } catch (PermissionDoesNotExist) {
                 return false;
             }
         }
+
         return true;
     }
 
-    public function getPermissionNames(): \Illuminate\Support\Collection
+    public function getPermissionNames(): Collection
     {
         return $this->permissions()->pluck('name');
     }
 
-    public function getAllPermissions(): \Illuminate\Support\Collection
+    public function getAllPermissions(): Collection
     {
         $direct = $this->permissions();
         if (method_exists($this, 'getPermissionsViaRoles')) {
             $direct = $direct->concat($this->getPermissionsViaRoles())->unique('_id');
         }
+
         return $direct->values();
     }
 
     protected function guardName(): string
     {
-        return \Webrek\MongoPermission\Guard::resolveForModel($this);
+        return Guard::resolveForModel($this);
     }
 
     protected function activeTeamId(): ?string
@@ -229,16 +179,21 @@ trait HasPermissions
         if (! config('permission.teams', false)) {
             return null;
         }
-        return app(\Webrek\MongoPermission\PermissionRegistrar::class)->getTeamId();
+
+        return app(PermissionRegistrar::class)->getTeamId();
     }
 
     protected function flattenInput(array $items): array
     {
         $flat = [];
         foreach ($items as $i) {
-            if (is_array($i)) $flat = array_merge($flat, $i);
-            else $flat[] = $i;
+            if (is_array($i)) {
+                $flat = array_merge($flat, $i);
+            } else {
+                $flat[] = $i;
+            }
         }
+
         return $flat;
     }
 
@@ -251,13 +206,15 @@ trait HasPermissions
             if ($e instanceof PermissionContract) {
                 $actualGuard = $e->getGuardName();
                 if ($actualGuard !== $expectedGuard) {
-                    throw \Webrek\MongoPermission\Exceptions\GuardDoesNotMatch::create($actualGuard, $expectedGuard);
+                    throw GuardDoesNotMatch::create($actualGuard, $expectedGuard);
                 }
                 $ids[] = (string) $e->getKey();
+
                 continue;
             }
             $ids[] = (string) $permClass::findByName($e, $expectedGuard)->getKey();
         }
+
         return $ids;
     }
 }

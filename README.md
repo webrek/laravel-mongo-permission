@@ -10,7 +10,7 @@ are designed around MongoDB.
 
 | Dependency | Versions |
 |---|---|
-| PHP | 8.2, 8.3, 8.4 |
+| PHP | 8.2–8.5 (Laravel 13 requires PHP 8.3+) |
 | Laravel | 12.x / 13.x |
 | MongoDB server | 7.x |
 | `mongodb/laravel-mongodb` | `^5.0` |
@@ -21,10 +21,12 @@ CI runs every release against the full PHP × Laravel matrix above. Laravel 10 a
 ## Install
 
 ```bash
-composer require webrek/laravel-mongo-permission
+composer require webrek/laravel-mongo-permission:^2.0
 php artisan vendor:publish --tag=permission-config
 php artisan permission:create-indexes
 ```
+
+Upgrading from 1.x? Read the [2.0 upgrade guide](docs/upgrading-from-1.7.md) before changing your Composer constraint.
 
 ## Quick start
 
@@ -106,8 +108,8 @@ transfers. The internals do not.
 
 ## Caching
 
-`hasPermissionTo` and `hasRole` consult an in-memory + Laravel Cache
-layer keyed by `(user_id, team_id)`. Mutations through `assignRole`,
+`hasPermissionTo` and `hasRole` consult Laravel Cache entries scoped by user,
+guard, team and isolation configuration, with catalog and user generations. Mutations through `assignRole`,
 `removeRole`, `givePermissionTo`, `revokePermissionTo`, and
 `syncRoles`/`syncPermissions` invalidate the affected keys via package
 events.
@@ -125,8 +127,18 @@ Changing a role or permission — including a raw model save (e.g. from an
 admin panel) or a deletion — invalidates every cached slug array at once by
 bumping a cache *generation* that is folded into the cache keys. Per-user
 changes (`assignRole`, `removeRole`, `givePermissionTo`, …) still invalidate
-only the affected user via events. So edits made anywhere take effect on the
-next request without a manual reset.
+only the affected user, across all team contexts. Generations are read on each
+check so a live registrar observes changes made by another process. So edits made anywhere take effect on the
+next check without a manual reset. `permission:cache-reset` invalidates only the
+package namespace; it does not flush the application's cache.
+
+`cache.store` selects the Laravel store. Use a shared store with atomic lock
+support (such as file or Redis) when multiple workers serve the app. Array
+cache is intended for isolated tests. Cache entries have a default TTL of
+86400 seconds; a published `null` also uses this bound. This expires retired
+cache generations; grant expiration is checked independently on every read.
+Direct writes through query builders bypass model events, so use the package
+mutation APIs or invalidate the package after bulk catalog writes.
 
 ## Multi-guard
 
@@ -154,7 +166,11 @@ Set `permission.teams = true` (default) and either call
     ?? request()->header('X-Team-Id'),
 ```
 
-Assignments made while a team is active are scoped to that team. Reads
+Catalog lookups prefer the active team's definition, with a global catalog
+fallback. Passing an explicit model belonging to another team throws
+`TeamDoesNotMatch`. Assignments made while a team is active are scoped to that team.
+Assign, remove and sync operations preserve assignments in other teams and
+guards. A global definition may be granted separately in multiple teams. Reads
 honor the active team. Setting `permission.strict_team_isolation = true`
 disables the "team_id = null is global" fallback.
 
@@ -175,6 +191,10 @@ $user->hasPermissionTo('publish posts');  // true for seven days
 // After the expiry passes:
 $user->hasRole('admin');                  // false
 ```
+
+Reassigning an expired grant renews it. Passing an explicit expiry updates that
+grant's expiry; repeating a grant without an expiry leaves an existing live
+grant unchanged. These updates preserve assignments in other teams.
 
 Expired subdocs are not removed automatically. Run the prune
 command on a schedule (or ad-hoc) to garbage-collect them and free
@@ -369,7 +389,7 @@ Published to `config/permission.php`:
 | `handle_unauthorized` | `true` | Let middleware throw 403 `UnauthorizedException` |
 | `cache.store` | `'default'` | Laravel Cache store for slug/catalog keys |
 | `cache.key` | `'mongo-permission'` | Namespace prefix for all package cache keys |
-| `cache.expiration_time` | `null` | `null` = forever (trust event-driven invalidation) |
+| `cache.expiration_time` | `86400` | Entry TTL in seconds or a Laravel-compatible interval; `null` falls back to 86400 |
 
 ## Testing locally
 
@@ -408,3 +428,26 @@ class FooTest extends TestCase
 ## License
 
 MIT
+
+## Redis integration tests
+
+CI runs the suite with array and Redis cache on each supported PHP/Laravel combination.
+The Redis run includes real subprocess grants, revocations and concurrent generation updates.
+For a local Redis run:
+
+```sh
+PERMISSION_TEST_CACHE=redis REDIS_HOST=127.0.0.1 REDIS_PORT=6380 \
+MONGO_DB_HOST=127.0.0.1 MONGO_DB_PORT=27018 vendor/bin/phpunit
+```
+
+Use a dedicated test Redis instance: the test harness flushes Redis DB 15 and uses DB 14 for locks.
+MongoDB test database names must end in `_test`. Do not run suites concurrently against the same databases.
+Mutation testing uses four workers with separate MongoDB databases per PHP process; each test cleans up its worker database.
+
+### Additional import and identity safeguards
+
+`permission:migrate-from-spatie` imports polymorphic assignments for `App\Models\User` by default. Pass `--source-model=customer` for a morph-map alias, or the fully qualified original SQL model name. This is separate from `--user-model`, which selects the destination MongoDB model. Other source model types are skipped even when their numeric IDs match a user.
+
+Repeated imports deduplicate by assignment ID **and team** and preserve existing user grants. `--force` replaces a role's permission list with the SQL list, including an empty list; without it, existing role permissions are retained and imported permissions are added. Global SQL catalog records remain global regardless of the command caller's team context.
+
+Passing a permission model to `hasPermissionTo` now checks its actual ID. Passing a string still checks the permission name; configured wildcard grants continue to apply. Permission cache format 2 prevents reuse of older entries that lack IDs.

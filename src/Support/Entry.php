@@ -2,6 +2,8 @@
 
 namespace Webrek\MongoPermission\Support;
 
+use MongoDB\BSON\ObjectId;
+
 /**
  * Normalises a role/permission assignment entry to a consistent shape,
  * accepting both the structured form written by this package
@@ -12,6 +14,21 @@ namespace Webrek\MongoPermission\Support;
  */
 class Entry
 {
+    /** Match references written either as strings or as native BSON ObjectIds. */
+    public static function queryIds(array $ids): array
+    {
+        $values = [];
+        foreach ($ids as $id) {
+            $id = (string) $id;
+            $values[] = $id;
+            if (preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
+                $values[] = new ObjectId($id);
+            }
+        }
+
+        return $values;
+    }
+
     /**
      * @param  string  $idKey  'role_id' or 'permission_id'
      * @return array{id: string|null, team_id: string|null, expires_at: mixed}

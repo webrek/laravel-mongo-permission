@@ -3,6 +3,8 @@
 namespace Webrek\MongoPermission\Commands;
 
 use Illuminate\Console\Command;
+use Webrek\MongoPermission\PermissionRegistrar;
+use Webrek\MongoPermission\Support\Entry;
 use Webrek\MongoPermission\Support\Expiry;
 use Webrek\MongoPermission\WildcardPermission;
 
@@ -25,41 +27,44 @@ class Check extends Command
         $userClass = $this->option('user-model') ?: config('auth.providers.users.model');
         if (! $userClass || ! class_exists($userClass)) {
             $this->error('Could not resolve a user model. Pass --user-model= or set auth.providers.users.model.');
+
             return self::FAILURE;
         }
 
         $guard = $this->option('guard') ?: config('permission.default_guard');
         $teamOpt = $this->option('team');
-        $teamFilter = $teamOpt === 'null' ? null : $teamOpt;
-        $teamFilterActive = $teamOpt !== null;
+        $teamFilter = $teamOpt === 'null' ? null : ($teamOpt ?? app(PermissionRegistrar::class)->getTeamId());
+        $teamFilterActive = $teamOpt !== null || (bool) config('permission.teams');
 
         $user = $userClass::query()->where('_id', $userId)->first();
         if (! $user) {
             $this->error(sprintf('User %s not found.', $userId));
+
             return self::FAILURE;
         }
 
         $permClass = config('permission.models.permission');
-        $perm = $permClass::query()
+        $perms = $permClass::query()
             ->where('name', $permName)
             ->where('guard_name', $guard)
-            ->first();
+            ->get()->filter(fn ($p) => $this->catalogMatches($p, $teamFilter, $teamFilterActive));
 
-        if (! $perm) {
+        if ($perms->isEmpty()) {
             $this->warn(sprintf('Permission "%s" does not exist for guard "%s".', $permName, $guard));
             $this->line('Checking wildcards owned by user...');
-            return $this->reportWildcardOnly($user, $permName, $guard);
+
+            return $this->reportWildcardOnly($user, $permName, $guard, $teamFilter, $teamFilterActive);
         }
 
-        $permId = (string) $perm->getKey();
+        $permIds = $perms->map(fn ($p) => (string) $p->getKey())->all();
 
         $this->info(sprintf('User %s has "%s" (guard %s)?', $userId, $permName, $guard));
         $reasons = [];
 
         // Direct grants matching the exact permission.
         foreach ($user->permission_ids ?? [] as $entry) {
-            $entry = (array) $entry;
-            if ((string) ($entry['permission_id'] ?? '') !== $permId) {
+            $entry = Entry::normalize($entry, 'permission_id');
+            if (! in_array($entry['id'], $permIds, true)) {
                 continue;
             }
             $reason = $this->describeGrant('direct grant', $entry, $teamFilter, $teamFilterActive);
@@ -69,14 +74,13 @@ class Check extends Command
         // Role-based grants matching the permission.
         $roleClass = config('permission.models.role');
         $rolesWithPerm = $roleClass::query()
-            ->where('permission_ids', $permId)
             ->where('guard_name', $guard)
-            ->get()
+            ->get()->filter(fn ($r) => $this->catalogMatches($r, $teamFilter, $teamFilterActive) && array_intersect($r->getAllPermissionIds(), $permIds))
             ->keyBy(fn ($r) => (string) $r->getKey());
 
         foreach ($user->role_ids ?? [] as $entry) {
-            $entry = (array) $entry;
-            $rid = (string) ($entry['role_id'] ?? '');
+            $entry = Entry::normalize($entry, 'role_id');
+            $rid = $entry['id'];
             $role = $rolesWithPerm->get($rid);
             if (! $role) {
                 continue;
@@ -105,9 +109,9 @@ class Check extends Command
             }
         }
 
-        $this->line('  ' . ($hasIt ? 'YES' : 'NO'));
+        $this->line('  '.($hasIt ? 'YES' : 'NO'));
         foreach ($reasons as $r) {
-            $this->line('  ' . $r);
+            $this->line('  '.$r);
         }
         if (empty($reasons)) {
             $this->line('  no matching grants found');
@@ -127,31 +131,29 @@ class Check extends Command
         $directIds = [];
         $directMeta = [];
         foreach ($user->permission_ids ?? [] as $e) {
-            $e = (array) $e;
-            if ($teamFilterActive && ($e['team_id'] ?? null) !== $teamFilter) {
+            $e = Entry::normalize($e, 'permission_id');
+            if (! $this->grantMatches($e['team_id'], $teamFilter, $teamFilterActive)) {
                 continue;
             }
             if (Expiry::isExpired($e)) {
                 continue;
             }
-            $pid = (string) ($e['permission_id'] ?? '');
+            $pid = (string) $e['id'];
             $directIds[] = $pid;
             $directMeta[$pid] = $e;
         }
 
         $roleIds = [];
-        $roleMeta = [];
         foreach ($user->role_ids ?? [] as $e) {
-            $e = (array) $e;
-            if ($teamFilterActive && ($e['team_id'] ?? null) !== $teamFilter) {
+            $e = Entry::normalize($e, 'role_id');
+            if (! $this->grantMatches($e['team_id'], $teamFilter, $teamFilterActive)) {
                 continue;
             }
             if (Expiry::isExpired($e)) {
                 continue;
             }
-            $rid = (string) ($e['role_id'] ?? '');
+            $rid = (string) $e['id'];
             $roleIds[] = $rid;
-            $roleMeta[$rid] = $e;
         }
 
         $allPermIds = $directIds;
@@ -160,10 +162,10 @@ class Check extends Command
             $rolesById = $roleClass::query()
                 ->whereIn('_id', $roleIds)
                 ->where('guard_name', $guard)
-                ->get()
+                ->get()->filter(fn ($r) => $this->catalogMatches($r, $teamFilter, $teamFilterActive))
                 ->keyBy(fn ($r) => (string) $r->getKey());
             foreach ($rolesById as $rid => $role) {
-                foreach ($role->permission_ids ?? [] as $pid) {
+                foreach ($role->getAllPermissionIds() as $pid) {
                     $allPermIds[] = (string) $pid;
                 }
             }
@@ -177,7 +179,7 @@ class Check extends Command
         $perms = $permClass::query()
             ->whereIn('_id', $allPermIds)
             ->where('guard_name', $guard)
-            ->get();
+            ->get()->filter(fn ($p) => $this->catalogMatches($p, $teamFilter, $teamFilterActive));
 
         $out = [];
         foreach ($perms as $p) {
@@ -188,26 +190,29 @@ class Check extends Command
             // Find which source (direct vs role) carries this permission.
             if (isset($directMeta[$pid])) {
                 $out[] = ['name' => $p->name, 'source' => 'direct', 'expires_at' => null];
+
                 continue;
             }
             foreach ($rolesById as $rid => $role) {
-                if (in_array($pid, array_map('strval', $role->permission_ids ?? []), strict: true)) {
+                if (in_array($pid, $role->getAllPermissionIds(), strict: true)) {
                     $out[] = ['name' => $p->name, 'source' => "via role \"{$role->name}\"", 'expires_at' => null];
                     break;
                 }
             }
         }
+
         return $out;
     }
 
-    protected function reportWildcardOnly(object $user, string $permName, string $guard): int
+    protected function reportWildcardOnly(object $user, string $permName, string $guard, ?string $teamFilter, bool $teamFilterActive): int
     {
         if (! config('permission.enable_wildcard_permission', false)) {
             $this->line('  Wildcard matching is disabled.');
+
             return self::SUCCESS;
         }
 
-        $wildcards = $this->ownedWildcards($user, $guard, null, false);
+        $wildcards = $this->ownedWildcards($user, $guard, $teamFilter, $teamFilterActive);
         $hit = false;
         foreach ($wildcards as $w) {
             if (WildcardPermission::implies($w['name'], $permName)) {
@@ -218,6 +223,7 @@ class Check extends Command
         if (! $hit) {
             $this->line('  no wildcard grant implies this name');
         }
+
         return self::SUCCESS;
     }
 
@@ -226,7 +232,7 @@ class Check extends Command
         $team = $entry['team_id'] ?? null;
         $teamLabel = $team ?? 'global';
 
-        if ($teamFilterActive && $team !== $teamFilter) {
+        if (! $this->grantMatches($team, $teamFilter, $teamFilterActive)) {
             return sprintf('[skip] %s in team [%s] does not match requested team [%s]', $kind, $teamLabel, $teamFilter ?? 'global');
         }
 
@@ -237,6 +243,17 @@ class Check extends Command
         if ($exp !== null) {
             return sprintf('[ok] %s in team [%s], expires %s', $kind, $teamLabel, $exp->format('Y-m-d H:i:s'));
         }
+
         return sprintf('[ok] %s in team [%s]', $kind, $teamLabel);
+    }
+
+    protected function catalogMatches(object $model, ?string $team, bool $scoped): bool
+    {
+        return ! $scoped || $model->team_id === null || $model->team_id === $team;
+    }
+
+    protected function grantMatches(?string $owner, ?string $team, bool $scoped): bool
+    {
+        return ! $scoped || $owner === $team || (! config('permission.strict_team_isolation') && $owner === null);
     }
 }

@@ -4,7 +4,46 @@ All notable changes to `webrek/laravel-mongo-permission` are documented
 here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-09-19
+
+### Validation
+- Run array and Redis suites across PHP 8.2–8.5 and Laravel 12/13 (Laravel 13 requires PHP 8.3+), with dependency auditing on each matrix entry.
+- Exercise Redis grant/revoke propagation between independent processes and 160 concurrent cache generation increments.
+- Isolate mutation test MongoDB databases by process to prevent shared-data interference; preserve mutation reports as CI artifacts.
+- Document upgrade behavior in [the v1.7.0 upgrade guide](docs/upgrading-from-1.7.md).
+
+### Fixed
+
+- Preserve concurrent Redis cache generation increments when a writer resumes after its lock lease expires.
+- Restore the previous team context after middleware execution, including downstream exceptions.
+- Count only the requested guard in `hasExactRoles`.
+- Prune expired grants with compare-and-swap so concurrent assignments survive cleanup.
+- Preserve valid zero-valued SQL user identifiers and match fields during imports while rejecting empty matches.
+- Include native BSON ObjectId references in reverse user queries and role/permission deletion cleanup.
+- Remove a no-op reflection accessibility call deprecated in PHP 8.5.
+- Check permission model identity instead of accepting a different same-named permission; retain explicit wildcard grants and invalidate the old name-only cache format.
+- Trace inherited and legacy grants in `permission:check`, with current/explicit team scope, global fallback and scoped wildcard diagnostics.
+- Restrict Spatie imports to `--source-model` (default `App\Models\User`); preserve per-team assignments, deduplicate repeated edges and reset counters/maps on each invocation.
+- Import global catalogs independently of caller team context, restore resolver state afterwards, and make `--force` replace role permissions including empty source roles.
+- Preserve concurrent grant writes during migration and invalidate affected user caches.
+- Normalize numeric SQL team identifiers to strings during import so team-scoped checks and repeated imports remain consistent.
+- Scope role/permission lookup, grant mutations and permission lists by team and guard; prefer team catalogs over global definitions. Reject cross-team and cross-guard hierarchy edges.
+- Invalidate revocations across all affected teams and live registrars. Serialize cache generation changes, respect the configured store and TTL, and preserve unrelated application cache on reset.
+- Use compare-and-swap for user grants and role permission arrays so concurrent additions do not overwrite each other. Synchronization preserves assignments in other teams and guards.
+- Renew expired grants on reassignment and update explicitly supplied expiry dates.
+- Validate hierarchy depth for affected descendants and serialize hierarchy API edits.
+- Honor `throw_on_missing_permission=false`; include inherited, wildcard and legacy grants in `permission:list-users`.
+
+### Performance
+- Cache catalog lookups, batch grant event model reads, and reuse shared ancestor reads during permission evaluation.
+- Create reverse user-assignment indexes and prefilter candidates for `permission:list-users`.
+
+### Breaking changes and upgrade requirements
+- Cache entries expire after 86400 seconds by default (also the fallback for a published null TTL) so retired generations are bounded. Grant expiration still takes effect immediately within a warm entry.
+- Configure a shared Laravel cache store supporting atomic locks for multiple workers (for example file or Redis). Array cache is suitable for isolated tests only.
+- Grant mutations update only their assignment arrays and emit package events; save unrelated dirty user attributes separately.
+- Assigning a model from another team throws `TeamDoesNotMatch`. Global catalog definitions remain reusable, but strict isolation applies to the team of each grant.
+
 
 ## [1.7.0] - 2026-06-16
 

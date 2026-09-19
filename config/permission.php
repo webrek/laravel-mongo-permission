@@ -31,7 +31,7 @@ return [
     'handle_unauthorized' => true,
 
     'cache' => [
-        'expiration_time' => null,
+        'expiration_time' => 86400,
         'key' => 'mongo-permission',
         'store' => 'default',
     ],

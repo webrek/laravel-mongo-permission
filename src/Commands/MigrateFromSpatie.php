@@ -4,11 +4,15 @@ namespace Webrek\MongoPermission\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Webrek\MongoPermission\PermissionRegistrar;
+use Webrek\MongoPermission\Support\AtomicArray;
+use Webrek\MongoPermission\Support\Entry;
 
 class MigrateFromSpatie extends Command
 {
     protected $signature = 'permission:migrate-from-spatie
         {--connection=mysql : SQL connection name to read spatie tables from}
+        {--source-model=App\\Models\\User : SQL polymorphic model type to import, including morph-map aliases}
         {--user-model= : Mongo user model. Defaults to auth.providers.users.model.}
         {--sql-user-table=users : SQL table containing user records}
         {--match-by=email : Field used to match SQL users to Mongo users}
@@ -20,23 +24,42 @@ class MigrateFromSpatie extends Command
 
     /** @var array<string, string> SQL permission id → Mongo permission id */
     protected array $permissionMap = [];
+
     /** @var array<string, string> SQL role id → Mongo role id */
     protected array $roleMap = [];
 
     /** counters */
     protected int $permsCreated = 0;
+
     protected int $permsSkipped = 0;
+
     protected int $permsOverwritten = 0;
+
     protected int $rolesCreated = 0;
+
     protected int $rolesSkipped = 0;
+
     protected int $rolesOverwritten = 0;
+
     protected int $roleEdges = 0;
+
     protected int $userRoleAssignments = 0;
+
     protected int $userPermAssignments = 0;
+
     protected int $usersUnmapped = 0;
 
     public function handle(): int
     {
+        return app(PermissionRegistrar::class)->withTeamId(null, fn () => $this->migrate());
+    }
+
+    protected function migrate(): int
+    {
+        $this->permissionMap = $this->roleMap = [];
+        $this->permsCreated = $this->permsSkipped = $this->permsOverwritten = 0;
+        $this->rolesCreated = $this->rolesSkipped = $this->rolesOverwritten = 0;
+        $this->roleEdges = $this->userRoleAssignments = $this->userPermAssignments = $this->usersUnmapped = 0;
         $connection = $this->option('connection');
         $dryRun = (bool) $this->option('dry-run');
         $force = (bool) $this->option('force');
@@ -45,6 +68,7 @@ class MigrateFromSpatie extends Command
             $sql = DB::connection($connection);
         } catch (\Throwable $e) {
             $this->error(sprintf('Cannot reach SQL connection "%s": %s', $connection, $e->getMessage()));
+
             return self::FAILURE;
         }
 
@@ -59,7 +83,7 @@ class MigrateFromSpatie extends Command
             $existing = $permClass::query()
                 ->where('name', $sp->name)
                 ->where('guard_name', $sp->guard_name ?? 'web')
-                ->where('team_id', $sp->team_id ?? null)
+                ->where('team_id', isset($sp->team_id) ? (string) $sp->team_id : null)
                 ->first();
 
             if ($existing) {
@@ -70,19 +94,21 @@ class MigrateFromSpatie extends Command
                     $this->permsSkipped++;
                 }
                 $this->permissionMap[(string) $sp->id] = (string) $existing->getKey();
+
                 continue;
             }
 
             if ($dryRun) {
                 $this->permsCreated++;
-                $this->permissionMap[(string) $sp->id] = 'pending-' . $sp->id;
+                $this->permissionMap[(string) $sp->id] = 'pending-'.$sp->id;
+
                 continue;
             }
 
             $perm = $permClass::create([
                 'name' => $sp->name,
                 'guard_name' => $sp->guard_name ?? 'web',
-                'team_id' => $sp->team_id ?? null,
+                'team_id' => isset($sp->team_id) ? (string) $sp->team_id : null,
             ]);
             $this->permissionMap[(string) $sp->id] = (string) $perm->getKey();
             $this->permsCreated++;
@@ -94,7 +120,7 @@ class MigrateFromSpatie extends Command
             $existing = $roleClass::query()
                 ->where('name', $sr->name)
                 ->where('guard_name', $sr->guard_name ?? 'web')
-                ->where('team_id', $sr->team_id ?? null)
+                ->where('team_id', isset($sr->team_id) ? (string) $sr->team_id : null)
                 ->first();
 
             if ($existing) {
@@ -105,19 +131,21 @@ class MigrateFromSpatie extends Command
                     $this->rolesSkipped++;
                 }
                 $this->roleMap[(string) $sr->id] = (string) $existing->getKey();
+
                 continue;
             }
 
             if ($dryRun) {
                 $this->rolesCreated++;
-                $this->roleMap[(string) $sr->id] = 'pending-' . $sr->id;
+                $this->roleMap[(string) $sr->id] = 'pending-'.$sr->id;
+
                 continue;
             }
 
             $role = $roleClass::create([
                 'name' => $sr->name,
                 'guard_name' => $sr->guard_name ?? 'web',
-                'team_id' => $sr->team_id ?? null,
+                'team_id' => isset($sr->team_id) ? (string) $sr->team_id : null,
             ]);
             $this->roleMap[(string) $sr->id] = (string) $role->getKey();
             $this->rolesCreated++;
@@ -125,7 +153,7 @@ class MigrateFromSpatie extends Command
 
         // 3) role_has_permissions → Role::permission_ids
         $roleHasPerms = $sql->table('role_has_permissions')->get();
-        $byRole = [];
+        $byRole = array_fill_keys(array_values($this->roleMap), []);
         foreach ($roleHasPerms as $row) {
             $mongoRoleId = $this->roleMap[(string) $row->role_id] ?? null;
             $mongoPermId = $this->permissionMap[(string) $row->permission_id] ?? null;
@@ -142,10 +170,11 @@ class MigrateFromSpatie extends Command
                 if (! $role) {
                     continue;
                 }
-                $current = array_map('strval', $role->permission_ids ?? []);
-                $merged = array_values(array_unique(array_merge($current, $permIds)));
-                $role->permission_ids = $merged;
-                $role->save();
+                [$before, $after] = AtomicArray::mutate($role, 'permission_ids',
+                    fn (array $current) => array_values(array_unique($force ? $permIds : array_merge($current, $permIds))));
+                if ($before != $after) {
+                    app(PermissionRegistrar::class)->bumpCacheVersion();
+                }
             }
         }
 
@@ -179,6 +208,7 @@ class MigrateFromSpatie extends Command
         $userClass = $this->option('user-model') ?: config('auth.providers.users.model');
         if (! $userClass || ! class_exists($userClass)) {
             $this->warn('No Mongo user model configured. Skipping user assignments.');
+
             return;
         }
 
@@ -194,7 +224,7 @@ class MigrateFromSpatie extends Command
             ->all();
 
         // Resolve match values → Mongo users (one fetch)
-        $matchValues = array_values(array_filter($sqlUserMatch));
+        $matchValues = array_values(array_filter($sqlUserMatch, fn ($value) => $value !== null && $value !== ''));
         $mongoUsers = empty($matchValues)
             ? collect()
             : $userClass::query()->whereIn($matchBy, $matchValues)->get()->keyBy(fn ($u) => $u->{$matchBy});
@@ -215,28 +245,34 @@ class MigrateFromSpatie extends Command
         // Group spatie assignments per user.
         $roleAssignments = [];
         foreach ($sql->table('model_has_roles')->get() as $row) {
+            if (property_exists($row, 'model_type') && $row->model_type !== $this->option('source-model')) {
+                continue;
+            }
             $sqlUserId = (string) ($row->model_id ?? $row->user_id ?? null);
             $mongoRoleId = $this->roleMap[(string) $row->role_id] ?? null;
-            if (! $sqlUserId || ! $mongoRoleId) {
+            if ($sqlUserId === '' || ! $mongoRoleId) {
                 continue;
             }
             $roleAssignments[$sqlUserId][] = [
                 'role_id' => $mongoRoleId,
-                'team_id' => $row->team_id ?? null,
+                'team_id' => isset($row->team_id) ? (string) $row->team_id : null,
                 'expires_at' => null,
             ];
         }
 
         $permAssignments = [];
         foreach ($sql->table('model_has_permissions')->get() as $row) {
+            if (property_exists($row, 'model_type') && $row->model_type !== $this->option('source-model')) {
+                continue;
+            }
             $sqlUserId = (string) ($row->model_id ?? $row->user_id ?? null);
             $mongoPermId = $this->permissionMap[(string) $row->permission_id] ?? null;
-            if (! $sqlUserId || ! $mongoPermId) {
+            if ($sqlUserId === '' || ! $mongoPermId) {
                 continue;
             }
             $permAssignments[$sqlUserId][] = [
                 'permission_id' => $mongoPermId,
-                'team_id' => $row->team_id ?? null,
+                'team_id' => isset($row->team_id) ? (string) $row->team_id : null,
                 'expires_at' => null,
             ];
         }
@@ -245,30 +281,46 @@ class MigrateFromSpatie extends Command
             $roles = $roleAssignments[$sqlId] ?? [];
             $perms = $permAssignments[$sqlId] ?? [];
 
-            if (! $dryRun) {
-                $existingRoles = $mongoUser->role_ids ?? [];
-                $existingRoleIds = collect($existingRoles)->map(fn ($e) => (string) ($e['role_id'] ?? null))->all();
-                $toAddRoles = array_filter($roles, fn ($r) => ! in_array($r['role_id'], $existingRoleIds, strict: true));
-
-                $existingPerms = $mongoUser->permission_ids ?? [];
-                $existingPermIds = collect($existingPerms)->map(fn ($e) => (string) ($e['permission_id'] ?? null))->all();
-                $toAddPerms = array_filter($perms, fn ($p) => ! in_array($p['permission_id'], $existingPermIds, strict: true));
-
-                if (! empty($toAddRoles)) {
-                    $mongoUser->role_ids = array_merge($existingRoles, array_values($toAddRoles));
+            $changed = false;
+            foreach (['role' => $roles, 'permission' => $perms] as $kind => $incoming) {
+                $field = $kind.'_ids';
+                $merge = fn (array $existing) => $this->mergeAssignments($existing, $incoming, $kind.'_id');
+                if ($dryRun) {
+                    $before = $mongoUser->getAttribute($field) ?? [];
+                    $after = $merge($before);
+                } else {
+                    [$before, $after] = AtomicArray::mutate($mongoUser, $field, $merge);
                 }
-                if (! empty($toAddPerms)) {
-                    $mongoUser->permission_ids = array_merge($existingPerms, array_values($toAddPerms));
+                $count = count($after) - count($before);
+                if ($kind === 'role') {
+                    $this->userRoleAssignments += $count;
+                } else {
+                    $this->userPermAssignments += $count;
                 }
-                if (! empty($toAddRoles) || ! empty($toAddPerms)) {
-                    $mongoUser->save();
-                }
-                $this->userRoleAssignments += count($toAddRoles);
-                $this->userPermAssignments += count($toAddPerms);
-            } else {
-                $this->userRoleAssignments += count($roles);
-                $this->userPermAssignments += count($perms);
+                $changed = $changed || $before != $after;
+            }
+            if (! $dryRun && $changed) {
+                app(PermissionRegistrar::class)->forgetUserCache((string) $mongoUser->getKey(), null);
             }
         }
+    }
+
+    protected function mergeAssignments(array $existing, array $incoming, string $idKey): array
+    {
+        $seen = [];
+        foreach ($existing as $entry) {
+            $n = Entry::normalize($entry, $idKey);
+            $seen[serialize([$n['id'], $n['team_id']])] = true;
+        }
+        foreach ($incoming as $entry) {
+            $n = Entry::normalize($entry, $idKey);
+            $key = serialize([$n['id'], $n['team_id']]);
+            if (! isset($seen[$key])) {
+                $existing[] = $entry;
+                $seen[$key] = true;
+            }
+        }
+
+        return $existing;
     }
 }

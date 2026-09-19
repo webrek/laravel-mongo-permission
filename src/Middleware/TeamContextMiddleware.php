@@ -15,7 +15,7 @@ class TeamContextMiddleware
             ?? $request->header('X-Team-Id');
 
         if ($teamId !== null) {
-            app(PermissionRegistrar::class)->setTeamId((string) $teamId);
+            return app(PermissionRegistrar::class)->withTeamId((string) $teamId, fn () => $next($request));
         }
 
         return $next($request);

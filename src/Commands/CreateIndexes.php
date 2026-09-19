@@ -7,6 +7,7 @@ use Illuminate\Console\Command;
 class CreateIndexes extends Command
 {
     protected $signature = 'permission:create-indexes';
+
     protected $description = 'Create MongoDB indexes for permission and role collections';
 
     public function handle(): int
@@ -34,7 +35,16 @@ class CreateIndexes extends Command
             ['name' => 'idx_permission_ids']
         );
 
+        $userClass = config('auth.providers.users.model');
+        if ($userClass && method_exists((new $userClass)->getConnection(), 'getMongoDB')) {
+            $user = new $userClass;
+            $users = $user->getConnection()->getMongoDB()->selectCollection($user->getTable());
+            foreach (['role_ids', 'role_ids.role_id', 'permission_ids', 'permission_ids.permission_id'] as $field) {
+                $users->createIndex([$field => 1], ['name' => 'idx_'.str_replace('.', '_', $field)]);
+            }
+        }
         $this->info('Indexes created.');
+
         return self::SUCCESS;
     }
 }
