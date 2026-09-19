@@ -1,15 +1,15 @@
-# Política de seguridad
+# Security policy
 
-## Versiones soportadas
+## Supported versions
 
-La última versión menor publicada recibe correcciones de seguridad.
+The latest published minor version receives security fixes.
 
-## Reportar una vulnerabilidad
+## Reporting a vulnerability
 
-Por favor no abras un _issue_ público para problemas de seguridad. Repórtalos de
-forma privada a través del
-[formulario de avisos de seguridad de GitHub](https://github.com/webrek/laravel-mongo-permission/security/advisories/new).
+Please do not open a public issue for security problems. Report them privately
+through the
+[GitHub security advisory form](https://github.com/webrek/laravel-mongo-permission/security/advisories/new).
 
-Puedes esperar una primera respuesta en unos pocos días hábiles. Una vez lista
-la corrección, se publica una versión parchada y el aviso se divulga dando
-crédito a quien lo reportó, salvo que prefiera el anonimato.
+You can expect an initial response within a few business days. Once a fix is
+ready, a patched version is released and the advisory is disclosed, crediting
+the reporter unless they prefer to remain anonymous.

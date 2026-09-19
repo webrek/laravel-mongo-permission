@@ -1,171 +1,171 @@
-# Corrección de la auditoría de la aplicación consumidora
+# Consumer application audit corrections
 
-Estado: **corregido localmente el 2026-09-14**, en la rama `fix/permission-audit`. La aplicación consumidora usa el paquete por enlace Composer y ya ejecuta estas correcciones. Los cambios están en la PR en borrador #1; no se ha publicado una versión. Ver `release-validation.md` para las validaciones posteriores.
+This report records the corrections verified locally on **2026-09-14** on the `fix/permission-audit` branch. The consumer application uses the package through a Composer path repository and ran these corrections. They were subsequently merged through [PR #1](https://github.com/webrek/laravel-mongo-permission/pull/1) and released in [v2.0.0](https://github.com/webrek/laravel-mongo-permission/releases/tag/v2.0.0). See [release validation](release-validation.md) for the later, expanded validation results.
 
-## Validación final
+## Validation after the initial corrections
 
-- Suite del paquete: **211 pruebas, 354 aserciones**, todas correctas. Incluye las 172 originales y 39 pruebas de regresión, seguridad y concurrencia.
-- Aplicación Laravel: **35 pruebas, 84 aserciones**, todas correctas: 28 escenarios de auditoría y 7 flujos funcionales.
-- PHPStan nivel 5: **sin errores**, sin nuevas exclusiones ni supresiones.
-- Caché de archivos: cuatro procesos independientes, 40 incrementos cada uno; resultado exacto **160**, sin actualizaciones perdidas.
-- `permission:create-indexes` ejecutado en el laboratorio. Aplicación disponible en http://127.0.0.1:8018.
+- Package suite: **211 tests, 354 assertions**, all passing. Includes the original 172 tests and 39 regression, security and concurrency tests.
+- Laravel application: **35 tests, 84 assertions**, all passing: 28 audit scenarios and seven functional flows.
+- PHPStan level 5: **no errors**, with no new exclusions or suppressions.
+- File cache: four independent processes, 40 increments each; exactly **160** increments, with no lost updates.
+- `permission:create-indexes` ran in the lab. The local application was available at http://127.0.0.1:8018.
 
-La prueba de herencia entre equipos ahora comprueba que la API rechaza la arista con `TeamDoesNotMatch`; se añadió otra prueba que inserta una arista inválida como dato legacy y comprueba que las lecturas tampoco conceden ese permiso. El resultado esperado sigue siendo denegar el acceso, y se verifica tanto al escribir como al leer.
+The cross-team inheritance test now verifies that the API rejects the edge with `TeamDoesNotMatch`. Another test inserts an invalid legacy edge and verifies that reads do not grant its permission either. Access must remain denied, and this is checked on both writes and reads.
 
-## Qué cambió
+## Changes
 
-Scope común para equipos y guards; búsquedas con preferencia por catálogo del equipo y fallback global; sincronizaciones que conservan otros equipos/guards; renovación de grants; compare-and-swap de arrays de asignaciones y permisos de roles; generación de caché protegida con locks compartidos; lectura de versiones entre procesos; respeto de store y TTL; invalidación sin vaciar caché ajena; validación de profundidad de descendientes y locks para cambios de jerarquía; comandos con herencia, wildcard y datos legacy; índices inversos en usuarios.
+Shared team and guard scoping; lookups that prefer the team's catalog with a global fallback; synchronization that preserves other teams and guards; grant renewal; compare-and-swap for assignment arrays and role permissions; cache generations protected by shared locks; generation reads across processes; configured store and TTL support; invalidation without flushing unrelated cache; descendant depth validation and locks for hierarchy changes; commands supporting inheritance, wildcards and legacy data; reverse indexes on user assignments.
 
-## Rendimiento: mismas operaciones y datos sintéticos
+## Performance: the same operations and synthetic data
 
-| Operación | Antes | Después |
+| Operation | Before | After |
 |---|---:|---:|
-| 100 comprobaciones denegadas | 100 consultas find | 1 consulta find |
-| 100 hasRole por nombre | 100 consultas find | 2 consultas find |
-| Permiso con 10 roles y padre compartido | 12 consultas find | 4 consultas find |
-| Asignar 100 permisos | 200 find + 1 update | 3 find + 1 getMore + 1 update |
-| Consulta inversa de usuarios por rol | 1,004 documentos examinados | 1 documento examinado |
+| 100 denied permission checks | 100 find queries | 1 find query |
+| 100 hasRole checks by name | 100 find queries | 2 find queries |
+| Permission check with 10 roles and a shared parent | 12 find queries | 4 find queries |
+| Assign 100 permissions | 200 find + 1 update | 3 find + 1 getMore + 1 update |
+| Reverse user lookup by role | 1,004 documents examined | 1 document examined |
 
-Las lecturas iniciales rellenan la caché; las comprobaciones siguientes reutilizan esos datos. El primer permiso permitido pasa de 2 a 3 consultas porque se vuelve a leer el usuario antes de reconstruir su autorización. Los 100 checks permitidos calientes siguen haciendo cero consultas MongoDB, pero la muestra pasa de 0.592 ms a 3.392 ms por la comprobación de generaciones compartidas. Los tiempos locales son orientativos; no son percentiles ni garantías de producción. Ver `permission-lab/docs/benchmark.json` y `benchmark-after.json` para los comandos completos.
+Initial reads populate the cache; subsequent checks reuse it. The first allowed permission check increases from two to three queries because the user is read again before rebuilding authorization. The 100 allowed checks with a warm cache still issue zero MongoDB queries, but the sample increases from 0.592 ms to 3.392 ms because shared generations are checked. Local timings are illustrative, not percentiles or production guarantees. See `permission-lab/docs/benchmark.json` and `benchmark-after.json` in the separate consumer application for the complete command counts.
 
-## Compatibilidad y uso
+## Compatibility and usage
 
-- Utilizar un store Laravel compartido que implemente locks atómicos (por ejemplo file o Redis) para múltiples workers. Array cache es apropiado para tests aislados.
-- La caducidad de caché predeterminada es ahora 86400 segundos; un config publicado con null también usa ese límite. Las generaciones obsoletas se retiran por TTL; el reset cambia de generación y no purga claves de otros módulos.
-- Los grants globales siguen siendo reutilizables como definiciones, pero las asignaciones pertenecen a un equipo. Operaciones explícitas con modelos de otro equipo lanzan `TeamDoesNotMatch`.
-- Las mutaciones de grants usan actualizaciones atómicas de sus arrays y emiten los eventos del paquete. No guardan otros atributos pendientes del modelo; usar `save()` por separado para cambios ajenos a permisos.
-- Las escrituras directas de query builder no ejecutan eventos de modelo. Usar las APIs del paquete o invalidar explícitamente después de una edición masiva del catálogo.
-- La validación inicial no incluyó toda la matriz ni Redis. La matriz y Redis se ejecutaron posteriormente: ver `release-validation.md`. Octane y Redis Cluster/failover siguen sin validarse.
+- Use a shared Laravel cache store supporting atomic locks (for example, file or Redis) for multiple workers. Array cache is appropriate for isolated tests.
+- The default cache lifetime is now 86400 seconds; a published configuration with a null TTL uses the same fallback. Retired generations expire through TTL; reset changes the generation without purging other modules' keys.
+- Global catalog definitions remain reusable, but assignments belong to a team. Explicit operations with another team's models throw `TeamDoesNotMatch`.
+- Grant mutations atomically update their assignment arrays and emit package events. They do not save other dirty model attributes; call `save()` separately for changes unrelated to permissions.
+- Direct query-builder writes do not dispatch model events. Use the package APIs or explicitly invalidate caches after bulk catalog edits.
+- Initial validation did not include the full matrix or Redis. Both were tested later: see [release validation](release-validation.md). Octane and Redis Cluster/failover remain outside this validation.
 
-## Reproducir
+## Reproducing the checks
 
-En el paquete:
+From the package directory:
 
 ```sh
 MONGO_DB_HOST=127.0.0.1 MONGO_DB_PORT=27018 MONGO_DB_DATABASE=permission_baseline_test php vendor/bin/phpunit
 php vendor/bin/phpstan analyse --memory-limit=1G
 ```
 
-En `/Users/victor/Sites/permission-lab`:
+From the separate consumer application (`permission-lab`):
 
 ```sh
 php artisan test
 composer lab:benchmark
 ```
 
-Los tests usan bases con sufijo `_test` y el benchmark reinicia exclusivamente `permission_benchmark_test`.
+Tests use databases ending in `_test`, and the benchmark resets only `permission_benchmark_test`.
 
 ---
 
-# Evidencia histórica: auditoría antes de las correcciones
+# Historical evidence: audit before the corrections
 
-Los resultados y propuestas siguientes corresponden al código base `d3cb5a4`, antes de esta rama. Los fallos históricos se conservan como evidencia, no como pendientes actuales.
+The following results and proposals describe baseline commit `d3cb5a4`, before the correction branch. Historical failures are retained as evidence, not as current outstanding issues. Statements about unimplemented fixes and missing validation below refer to that baseline.
 
-# Auditoría con aplicación consumidora Laravel + MongoDB
+## Laravel + MongoDB consumer application audit
 
-Fecha de trabajo: 2026-09-13. Código verificado: `webrek/laravel-mongo-permission` main `d3cb5a4` (el commit de v1.7.0 es `227ea3d`).
+Audit date: 2026-09-13. Reviewed code: `webrek/laravel-mongo-permission` main `d3cb5a4` (the v1.7.0 commit is `227ea3d`).
 
-## Entorno y método
+### Environment and method
 
-Aplicación en `/Users/victor/Sites/permission-lab`, paquete enlazado desde `/Users/victor/Sites/permisos`. Laravel 12.69.2, PHP 8.3.31, extensión mongodb 1.21.7, integración mongodb/laravel-mongodb 5.11.0, MongoDB 7 en Docker con puerto local 27018. Autenticación y artículos reales, almacenamiento MongoDB; pruebas aisladas en `permission_lab_test`.
+The application was located at `/Users/victor/Sites/permission-lab`, with the package linked from `/Users/victor/Sites/permisos`. Laravel 12.69.2, PHP 8.3.31, mongodb extension 1.21.7, mongodb/laravel-mongodb 5.11.0, and MongoDB 7 in Docker on local port 27018. The application implemented authentication and article workflows backed by MongoDB, with isolated tests in `permission_lab_test`.
 
-La copia local inicial (`92d5cb6`) estaba nueve commits atrasada. Se actualizó con fast-forward a origin/main. Tres problemas de invalidación al sincronizar, revocar y eliminar roles se reproducían en esa copia, pero **ya están corregidos en el código actual**. No deben abrirse como bugs nuevos. Se verificó que `src/` y `config/` no tienen diferencias entre v1.7.0 y el main auditado.
+The initial local checkout (`92d5cb6`) was nine commits behind and was fast-forwarded to origin/main. Three invalidation problems involving role synchronization, revocation and deletion reproduced in that checkout, but **were already fixed in the audited baseline**. They should not be filed as new bugs. The audit verified that `src/` and `config/` had no differences between v1.7.0 and the audited main commit.
 
-La suite existente del paquete pasa: **172 pruebas, 286 aserciones** con las dependencias locales disponibles. No equivale a validar toda la matriz de CI. La plataforma tiene pruebas HTTP de autenticación, páginas, creación y asignación, restricciones 403 y flujo editorial; ver `composer lab:test`.
+The existing package suite passed: **172 tests, 286 assertions**, using the locally available dependencies. This did not validate the full CI matrix. The platform included HTTP tests for authentication, pages, creation and assignment, 403 restrictions and the editorial workflow; see `composer lab:test` in the consumer application.
 
-## Casos actuales reproducibles
+### Reproducible baseline cases
 
-Ejecutar desde la aplicación: `composer lab:audit`. Los métodos están en `tests/Feature/PackageAuditTest.php`. Los nombres siguientes omiten el prefijo `test_`.
+Run `composer lab:audit` from the consumer application. The methods are in `tests/Feature/PackageAuditTest.php`. Names below omit the `test_` prefix.
 
-| Prioridad | Caso | Resultado observado | Resultado esperado / implicación |
+| Priority | Case | Observed result | Expected result / implication |
 |---|---|---|---|
-| Alta | `role_name_resolves_in_active_team` | Creando reviewer en alpha y beta, findByName en beta devuelve el rol de alpha. | Resolver por equipo activo; un nombre repetido no debe elegir otro tenant. |
-| Alta | `same_role_can_be_granted_in_two_teams` | Otorgar el mismo rol global en alpha y beta solo conserva la asignación de alpha. | La identidad de una asignación debe incluir equipo y rol. |
-| Alta | `removing_in_another_team_preserves_original_grant` | removeRole en beta elimina la asignación de alpha aunque beta no la tenía. | Una revocación debe limitarse al equipo activo. |
-| Alta | `role_rejects_permission_from_other_guard` | Un rol web acepta una instancia Permission con guard api, sin excepción. | Aplicar GuardDoesNotMatch también a las mutaciones de Role. |
-| Media | `cache_reset_preserves_unrelated_application_data` | permission:cache-reset elimina una clave ajena al paquete. | Limpiar solo el namespace del paquete; hoy utiliza Cache::flush. |
-| Media | `missing_permission_can_return_false_when_configured` | throw_on_missing_permission=false sigue lanzando PermissionDoesNotExist. | Respetar la opción documentada y devolver false. |
-| Media | `expired_role_can_be_renewed` | Reasignar un rol vencido con fecha futura no renueva el grant. | Permitir renovación o proporcionar una API explícita; actualmente falla silenciosamente. |
+| High | `role_name_resolves_in_active_team` | After creating reviewer in alpha and beta, findByName in beta returns alpha's role. | Resolve within the active team; a repeated name must not select another tenant. |
+| High | `same_role_can_be_granted_in_two_teams` | Granting the same global role in alpha and beta preserves only alpha's assignment. | Assignment identity must include both team and role. |
+| High | `removing_in_another_team_preserves_original_grant` | removeRole in beta removes alpha's assignment even though beta did not have it. | Revocation must be limited to the active team. |
+| High | `role_rejects_permission_from_other_guard` | A web role accepts a Permission instance with the api guard without an exception. | Apply GuardDoesNotMatch to Role mutations as well. |
+| Medium | `cache_reset_preserves_unrelated_application_data` | permission:cache-reset deletes a key unrelated to the package. | Invalidate only the package namespace; the baseline uses Cache::flush. |
+| Medium | `missing_permission_can_return_false_when_configured` | throw_on_missing_permission=false still throws PermissionDoesNotExist. | Respect the documented option and return false. |
+| Medium | `expired_role_can_be_renewed` | Reassigning an expired role with a future date does not renew the grant. | Allow renewal or provide an explicit API; the baseline silently ignores it. |
 
-Resultado actual: **7 fallos, 3 casos correctos, 15 aserciones**. Los casos de equipo activan `teams=true` y `strict_team_isolation=true`; la UI mantiene `teams=false`. La renovación se clasifica como funcionalidad faltante o comportamiento no documentado, además de ser una expectativa fallida.
+Baseline result: **seven failures, three passing cases, 15 assertions**. Team cases enable `teams=true` and `strict_team_isolation=true`; the UI keeps `teams=false`. Renewal was classified as missing functionality or undocumented behavior, as well as a failed expectation.
 
-## Causas y correcciones propuestas
+### Causes and proposed corrections at the time
 
-1. `Models/Role::findByName` filtra nombre y guard, pero no team_id. Definir una política única para la resolución por equipo y fallback global, aplicable también a los permisos y búsquedas por ID.
-2. `Traits/HasRoles::attachRoles` deduplica solo por role_id. Usar la pareja (role_id, team_id); revisar el mismo patrón en permisos directos.
-3. `Traits/HasRoles::removeRole` elimina por role_id sin scope. Aplicar scope a remove y sync, y emitir el team correcto para invalidar cachés.
-4. `Models/Role::resolvePermissionIds` acepta instancias sin validar guard. Validar antes de guardar cualquier cambio, incluida syncPermissions.
-5. `PermissionRegistrar::flush` llama Cache::flush; aprovechar invalidación por generación sin tocar claves de la app. Considerar además almacenamiento y caducidad configurados.
-6. `Traits/HasPermissions::hasPermissionTo` consulta findByName sin atender throw_on_missing_permission. Condicionar la excepción a la opción.
-7. `attachRoles` devuelve temprano si ya existe el ID aunque el grant esté vencido. Definir reemplazo/renovación con actualización de expires_at e invalidación.
+1. `Models/Role::findByName` filters by name and guard, but not team_id. Define a consistent team-resolution and global-fallback policy, including permissions and lookups by ID.
+2. `Traits/HasRoles::attachRoles` deduplicates only by role_id. Use the (role_id, team_id) pair; review the same pattern for direct permissions.
+3. `Traits/HasRoles::removeRole` removes by role_id without scoping. Scope remove and sync operations and emit the correct team for cache invalidation.
+4. `Models/Role::resolvePermissionIds` accepts instances without validating their guard. Validate before saving any change, including syncPermissions.
+5. `PermissionRegistrar::flush` calls Cache::flush. Use generation-based invalidation without touching application keys. Also respect the configured store and expiration.
+6. `Traits/HasPermissions::hasPermissionTo` calls findByName without respecting throw_on_missing_permission. Make the exception conditional on the option.
+7. `attachRoles` returns early when the ID already exists, even if the grant has expired. Define replacement/renewal behavior that updates expires_at and invalidates caches.
 
-Estas correcciones están propuestas, no implementadas. El código fuente del paquete se conserva tal como está en origin/main para tener una base reproducible.
+At this stage, these corrections were proposed but not implemented. The package source was kept unchanged from origin/main as a reproducible baseline.
 
-## Cobertura y siguientes capacidades útiles
+### Coverage and useful follow-up capabilities
 
-La auditoría no es exhaustiva ni incluye pruebas de concurrencia, carga o todos los guards y configuraciones. Siguientes capacidades recomendadas a partir del uso del panel:
+The initial audit was not exhaustive and did not include concurrency, load, or every guard and configuration. Using the panel suggested the following capabilities:
 
-- Renovar y cambiar la caducidad de grants desde una API explícita.
-- Operaciones consistentes de asignar, sincronizar y revocar dentro de un equipo.
-- Explicar el origen de un permiso efectivo (directo, rol, ancestro o wildcard), útil para soporte y para un inspector de acceso.
-- Auditoría persistente en la aplicación consumidora de cambios de acceso; los eventos del paquete son una base, no un historial durable.
+- Renew grants and change their expiration through an explicit API.
+- Consistent assignment, synchronization and revocation within a team.
+- Explain the source of an effective permission (direct, role, ancestor or wildcard) for support and access inspection.
+- Persistent access-change auditing in the consumer application; package events are a foundation, not a durable history.
 
-El flujo de navegador y las pruebas HTTP se documentan en el README de la aplicación. No se ha hecho publicación ni se han enviado issues externos.
+The browser flow and HTTP tests were documented in the application's README. No release had been published and no external issues had been filed at this stage.
 
-## Uso real en Safari
+### Live Safari usage
 
-Se inició sesión como editor, se creó «Prueba real: flujo editorial» y se comprobó que no aparecía Publicar. Una navegación directa a /roles devolvió la página 403. Después se entró como admin, se otorgó articles.publish al rol editor y se guardó. En una nueva sesión del editor, el permiso apareció como Permitido y se publicó el artículo correctamente, sin limpiar la caché manualmente. Finalmente se restauró el rol editor a lectura y creación. El artículo permanece publicado como evidencia del flujo.
+The editor signed in, created an article titled "Live test: editorial workflow" (translated title), and verified that the Publish action was absent. Direct navigation to /roles returned a 403 page. An administrator then signed in, granted articles.publish to the editor role, and saved it. In a new editor session, the permission appeared as Allowed and the article was successfully published without manually clearing the cache. Finally, the editor role was restored to read and create permissions. The published article was retained as evidence of the flow.
 
-## Ampliación: seguridad, consistencia y rendimiento
+### Extended audit: security, consistency and performance
 
-La segunda ronda añade 18 escenarios: 16 fallan y 2 pasan. El total combinado es **28 escenarios: 23 fallidos y 5 correctos, 42 aserciones**. Hay causas compartidas entre roles y permisos, por lo que esta cifra no equivale a 23 bugs independientes. Código reproducible: `tests/Feature/ExtendedAuditTest.php` de la aplicación. Salida: `docs/audit-extended.txt` y `docs/audit-all.txt`.
+The second round added 18 scenarios: 16 failed and two passed. The combined result was **28 scenarios: 23 failing and five passing, 42 assertions**. Some roles and permissions shared root causes, so this did not represent 23 independent bugs. Reproduction code: `tests/Feature/ExtendedAuditTest.php` in the consumer application. Output: `docs/audit-extended.txt` and `docs/audit-all.txt` in that application.
 
-| Área | Caso ampliado | Observación confirmada | Prioridad |
+| Area | Extended case | Confirmed observation | Priority |
 |---|---|---|---|
-| Autorización | `team_revocation_invalidates_cached_authorization` | En alpha, se calienta la caché, se revoca un permiso directo y hasDirectPermission da false, pero hasPermissionTo sigue dando true. El evento de revocación lleva team null y no borra la entrada alpha. | Alta |
-| Herencia | `hierarchy_cannot_grant_other_tenant_permissions` | Un rol beta hereda de alpha; un usuario beta recibe el permiso tenant.secret de alpha aun con strict_team_isolation=true. | Alta |
-| Guards | `hierarchy_rejects_cross_guard_parent` | Un rol web acepta padre api sin GuardDoesNotMatch. | Alta |
-| Escrituras | `two_loaded_users_do_not_lose_independent_grants` | Dos instancias del mismo usuario se leen antes de guardar. La primera otorga create, la segunda publish: se pierde create. Reproduce determinísticamente una intercalación de escrituras; no es una prueba de carga paralela. | Alta |
-| Generación de caché | `overlapping_registrars_do_not_reuse_cache_generation` | Dos registrars leen la misma versión; ambos incrementos escriben el mismo número. El segundo cambio no genera una clave distinta. | Alta |
-| Procesos persistentes | `long_lived_registrar_sees_external_role_revocation` | Un registrar ya calentado no observa una revocación ejecutada por otro registrar. Reproduce una instancia de larga vida; no se instaló ni validó Octane. | Alta si se usa ese modelo de ejecución |
-| Equipo | `permission_lookup_respects_active_team` | findByName de Permission selecciona el documento del otro equipo. | Alta |
-| Equipo | `direct_permission_can_be_granted_in_two_teams` | La deduplicación por ID impide el segundo grant del mismo permiso en otro equipo. | Alta |
-| Equipo | `direct_permission_revocation_does_not_touch_other_team` | Una revocación desde beta elimina el grant de alpha. | Alta |
-| Lecturas | `permission_listing_agrees_with_active_team` | getAllPermissions expone un permiso de alpha dentro de beta aunque hasDirectPermission lo niega. | Media |
-| Jerarquía | `extending_existing_ancestor_respects_total_depth` | Con máximo 2, se forma A→B→C y luego C→D; la operación permite una cadena total de 3. Solo se valida hacia arriba del nodo modificado. | Media |
-| Expiración | `expired_direct_permission_can_be_renewed` | Reotorgar con fecha futura conserva el grant vencido. | Media |
-| Configuración | `configured_cache_store_is_used` | permission.cache.store no dirige las entradas al store configurado. | Media |
-| Configuración | `configured_cache_ttl_is_respected` | permission.cache.expiration_time=1 deja la entrada activa después de avanzar el reloj 2 segundos. | Media |
-| CLI | `cli_lists_users_with_inherited_permission` | hasPermissionTo reconoce la herencia pero permission:list-users --permission informa cero usuarios. | Media |
-| CLI / legacy | `cli_lists_legacy_flat_role_assignments` | hasRole reconoce IDs planos, pero permission:list-users omite ese usuario. | Media |
+| Authorization | `team_revocation_invalidates_cached_authorization` | In alpha, warm the cache and revoke a direct permission: hasDirectPermission returns false, but hasPermissionTo still returns true. The revocation event carries a null team and does not invalidate alpha's entry. | High |
+| Inheritance | `hierarchy_cannot_grant_other_tenant_permissions` | A beta role inherits from alpha; a beta user receives alpha's tenant.secret permission even with strict_team_isolation=true. | High |
+| Guards | `hierarchy_rejects_cross_guard_parent` | A web role accepts an api parent without GuardDoesNotMatch. | High |
+| Writes | `two_loaded_users_do_not_lose_independent_grants` | Two instances of the same user are loaded before saving. The first grants create, the second grants publish: create is lost. This deterministically reproduces interleaved writes; it is not a parallel load test. | High |
+| Cache generation | `overlapping_registrars_do_not_reuse_cache_generation` | Two registrars read the same version; both increments write the same number. The second change does not produce a distinct key. | High |
+| Persistent processes | `long_lived_registrar_sees_external_role_revocation` | A warmed registrar does not observe a revocation performed by another registrar. This reproduces a long-lived instance; Octane was not installed or validated. | High when using this execution model |
+| Teams | `permission_lookup_respects_active_team` | Permission's findByName selects the other team's document. | High |
+| Teams | `direct_permission_can_be_granted_in_two_teams` | Deduplication by ID prevents a second grant of the same permission in another team. | High |
+| Teams | `direct_permission_revocation_does_not_touch_other_team` | Revocation from beta removes alpha's grant. | High |
+| Reads | `permission_listing_agrees_with_active_team` | getAllPermissions exposes an alpha permission within beta even though hasDirectPermission denies it. | Medium |
+| Hierarchy | `extending_existing_ancestor_respects_total_depth` | With a maximum depth of two, create A→B→C, then C→D: a chain of three is allowed. Only ancestors of the modified node are checked. | Medium |
+| Expiration | `expired_direct_permission_can_be_renewed` | Regranting with a future date preserves the expired grant. | Medium |
+| Configuration | `configured_cache_store_is_used` | permission.cache.store does not route entries to the configured store. | Medium |
+| Configuration | `configured_cache_ttl_is_respected` | permission.cache.expiration_time=1 leaves the entry active after advancing the clock by two seconds. | Medium |
+| CLI | `cli_lists_users_with_inherited_permission` | hasPermissionTo recognizes inheritance, but permission:list-users --permission reports zero users. | Medium |
+| CLI / legacy | `cli_lists_legacy_flat_role_assignments` | hasRole recognizes flat IDs, but permission:list-users omits the user. | Medium |
 
-Controles positivos de la ampliación: la expiración de un permiso directo sí corta acceso con caché caliente y la detección de ciclos simples funciona. Los siete flujos funcionales de la plataforma también pasan, con 41 aserciones.
+Positive controls in the extended audit: direct permission expiration revoked access even with a warm cache, and simple cycle detection worked. The platform's seven functional flows also passed, with 41 assertions.
 
-### Mediciones
+#### Measurements
 
-Ejecutar `composer lab:benchmark` desde la aplicación. Instrumentación con CommandSubscriber del driver, sin registrar contenidos de consultas ni credenciales. MongoDB 7.0.41 local, cuatro usuarios funcionales y 1,000 documentos sintéticos para el explain. Los tiempos son una muestra orientativa, no percentiles ni capacidad de producción; el conteo de comandos es la evidencia principal.
+Run `composer lab:benchmark` from the consumer application. Instrumentation uses the driver's CommandSubscriber without recording query contents or credentials. The environment used local MongoDB 7.0.41, four functional users and 1,000 synthetic documents for explain. Timings are illustrative samples, not percentiles or production capacity estimates; command counts are the primary evidence.
 
-| Operación | Lecturas MongoDB | Tiempo de la muestra |
+| Operation | MongoDB reads | Sample time |
 |---|---:|---:|
-| Primer permiso permitido | 2 | 0.959 ms |
-| 100 comprobaciones permitidas, caché caliente | 0 | 0.592 ms |
-| 100 comprobaciones denegadas, caché caliente | 100 | 39.927 ms |
-| 100 hasRole por nombre | 100 | 41.621 ms |
-| Primer permiso de usuario con 10 roles que comparten padre | 12 | 7.222 ms |
-| Asignar 100 permisos directos | 200, más 1 escritura | 74.697 ms |
+| First allowed permission check | 2 | 0.959 ms |
+| 100 allowed checks, warm cache | 0 | 0.592 ms |
+| 100 denied checks, warm cache | 100 | 39.927 ms |
+| 100 hasRole checks by name | 100 | 41.621 ms |
+| First permission check for a user with 10 roles sharing a parent | 12 | 7.222 ms |
+| Assign 100 direct permissions | 200, plus 1 write | 74.697 ms |
 
-La consulta inversa que usa Role::users examinó **1,004 documentos** y devolvió uno, aun después de ejecutar permission:create-indexes. Con índices de prueba sobre users.role_ids y users.role_ids.role_id examinó **1 documento y 1 clave**. Los índices se añadieron solo a permission_benchmark_test. Esto valida esa optimización para la forma de consulta y datos ensayados; no mide todavía su coste de escritura.
+The reverse query used by Role::users examined **1,004 documents** and returned one, even after permission:create-indexes had run. With experimental indexes on users.role_ids and users.role_ids.role_id, it examined **one document and one key**. The indexes were added only to permission_benchmark_test. This validated the optimization for the tested query and data; it did not measure its write cost.
 
-También se verificó que la entrada de una generación anterior sigue almacenada después de guardar un rol. Como se usa rememberForever y se ignora el TTL configurado, las generaciones obsoletas pueden acumularse; no se midió una curva de memoria ni crecimiento en producción.
+The audit also confirmed that a previous generation's cache entry remained stored after saving a role. Because the baseline used rememberForever and ignored the configured TTL, retired generations could accumulate. No memory curve or production growth was measured.
 
-### Orden de trabajo recomendado
+#### Recommended implementation order at the time
 
-1. Corregir primero las revocaciones, la identidad (equipo, guard, ID) y los límites de herencia; cubrir mutaciones y lecturas con la misma política de scope.
-2. Evitar pérdida de actualizaciones mediante operaciones atómicas o compare-and-swap; para grants estructurados no basta aplicar addToSet sin considerar equipo y expiración. MongoDB documenta la atomicidad por documento y el uso de condiciones de actualización en [Atomicity and Transactions](https://www.mongodb.com/docs/manual/core/write-operations-atomicity/).
-3. Hacer atómica la generación de caché, respetar store y TTL, conservar claves ajenas y definir un ciclo de vida seguro para registrars persistentes.
-4. Reducir lecturas repetidas: cachear catálogo y resolución de nombres incluyendo equipo y guard; hacer batch de los 100 permisos; recorrer ancestros compartidos una vez por evaluación. Medir otra vez después del cambio.
-5. Añadir índices inversos según modelos/colecciones configurados y evitar escanear todos los usuarios en list-users; mantener resultados consistentes con herencia, wildcard, TTL y datos legacy.
+1. Fix revocations, identity (team, guard and ID) and inheritance boundaries first; apply the same scope policy to mutations and reads.
+2. Prevent lost updates through atomic operations or compare-and-swap. For structured grants, addToSet alone is insufficient without considering team and expiration. MongoDB documents single-document atomicity and conditional updates in [Atomicity and Transactions](https://www.mongodb.com/docs/manual/core/write-operations-atomicity/).
+3. Make cache generation atomic, respect the store and TTL, preserve unrelated keys, and define a safe lifecycle for persistent registrars.
+4. Reduce repeated reads: cache catalog and name resolution with team and guard context, batch the 100 permissions, and visit shared ancestors once per evaluation. Measure again after the changes.
+5. Add reverse indexes using configured models and collections, and avoid scanning every user in list-users. Keep results consistent with inheritance, wildcards, TTL and legacy data.
 
-Fuentes del instrumental: [CommandSubscriber de PHP](https://www.php.net/manual/en/class.mongodb-driver-monitoring-commandsubscriber.php) y [MongoDB Client::addSubscriber](https://www.mongodb.com/docs/php-library/v1.x/reference/method/mongodbclient-addsubscriber/).
+Instrumentation references: [PHP CommandSubscriber](https://www.php.net/manual/en/class.mongodb-driver-monitoring-commandsubscriber.php) and [MongoDB Client::addSubscriber](https://www.mongodb.com/docs/php-library/v1.x/reference/method/mongodbclient-addsubscriber/).
 
-La revisión deja evidencia y propuestas; no se han aplicado correcciones al código del paquete. No cubre despliegues distribuidos, stress, transacciones en replica set, compatibilidad completa con Laravel 13 ni una auditoría de seguridad exhaustiva.
+At the baseline stage, this review provided evidence and proposals without applying package code changes. It did not cover distributed deployments, stress testing, replica-set transactions, full Laravel 13 compatibility or an exhaustive security audit. Later corrections and validation are described above and in [release validation](release-validation.md).
